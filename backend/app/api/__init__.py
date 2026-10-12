@@ -1,0 +1,1 @@
+"""Contract-aligned HTTP routes."""

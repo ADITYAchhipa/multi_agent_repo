@@ -1,7 +1,7 @@
 # Compatibility candidate only. Record RepoDigests and pass S01 before deployment.
 services:
   falkordb:
-    image: falkordb/falkordb:v6.0.2
+    image: falkordb/falkordb:v4.20.4
     ports:
       - "127.0.0.1:16379:6379"
     healthcheck:

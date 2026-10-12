@@ -1,8 +1,8 @@
 # PromiseOps backend foundation
 
-Phase 0 work in progress. This is **not the complete business workflow**. No application graph
-writes or external action routes are enabled until real FalkorDB compatibility and atomic
-publication pass. The API contract in `../docs/API_CONTRACTS.md` is unchanged.
+Phase 0 compatibility and a read-only API slice are implemented. This is **not the complete
+business workflow**. No application graph writes or external action routes are enabled. The API
+contract in `../docs/API_CONTRACTS.md` is unchanged.
 
 Python 3.14.7 is the available local runtime. Dependencies are pinned in `pyproject.toml`
 and locked with hashes in `uv.lock`. From the repository root:
@@ -23,27 +23,37 @@ Production is deliberately disabled pending identity and acceptance gates.
 `GET /api/health` probes the configured existing graph through the official synchronous
 FalkorDB client in a worker thread. It returns 503 while the graph is absent/unreachable;
 it never creates a graph to manufacture readiness. `/internal/live` is a process-only probe,
-excluded from OpenAPI. All other product routes remain unimplemented (404).
+excluded from OpenAPI. With `DEMO_USERS` and `SESSION_SECRET` configured, `POST /api/session`
+sets a local HttpOnly cookie, `GET /api/session` reads the current identity, and
+`GET /api/promises` / `GET /api/promises/{promise_id}` query PUBLIC_DEMO tenant-scoped graph
+facts. `GET /api/promises/{promise_id}/verify` checks canonical hash/signature with configured
+public keys but reports source-byte/audit checks UNAVAILABLE and action eligibility false.
+Historical version reads, source ingestion, review writes, scenarios and actions remain pending.
+No demo credential, private key or source artifact is bundled.
 
 Offline tests include a source → exact evidence → PROPOSED receipt → signature → tampered-copy
 slice. They do not establish graph persistence, audit-chain continuity, source retention,
 business confirmation, policy authorization, idempotent dispatch or read-back.
 
-Real graph compatibility commands, once Docker is installed and running:
+Real graph compatibility commands (the tested Homebrew Compose executable is `docker-compose`):
 
 ```sh
-docker compose -f backend/compose.spike.yaml config
-docker compose -f backend/compose.spike.yaml up -d --wait
-docker image inspect falkordb/falkordb:v6.0.2 --format '{{json .RepoDigests}}'
+docker-compose -f backend/compose.spike.yaml config
+docker-compose --progress quiet -f backend/compose.spike.yaml up -d --wait
+docker image inspect falkordb/falkordb:v4.20.4 --format '{{json .RepoDigests}}'
 cd backend
 RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest tests/integration -v
 ```
 
-The candidate server tag is not a verified deployment pin; record the digest after pulling.
+The pulled v4.20.4 image digest on macOS ARM64 was
+`sha256:adbddd418916c25618564ff8597a919b08bc76452ebeb74eb985c38d7281df62`.
+The v6.0.2 tag formerly written here did not exist on Docker Hub. This is a tested spike pin,
+not a release/security endorsement.
 Integration tests create and delete only generated `spike_*` graphs. Use a disposable server.
 Without the opt-in variable, tests skip with an explicit reason. With opt-in they fail on
-unavailable/incompatible servers. Remaining S01 tests include restart/cache, persistence/restore,
-native constraint behavior and application query templates; the current spike is a subset.
+unavailable/incompatible servers. On 2026-10-12 the full opted-in suite passed 91 tests, including
+the original four compatibility tests and one graph-backed promise API test. Remaining S01 tests
+include restart/cache, persistence/restore and native constraint behavior; the spike is a subset.
 
 Dependency audit (network required; reports are gitignored):
 

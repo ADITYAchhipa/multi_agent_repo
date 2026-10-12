@@ -26,3 +26,17 @@ crypto function is intentionally not published as the contract's full verificati
 
 Status and exact check outcomes are maintained in IMPLEMENTATION_NOTES.md. Next milestone:
 run/fix/extend S01 against the pinned server, then implement the no-LLM graph publication slice.
+
+## 2026-10-12 update
+
+Docker/Colima are available locally. `falkordb/falkordb:v4.20.4` with official Python client
+1.7.1 passed the four original graph compatibility tests; the digest and actual results are in
+IMPLEMENTATION_NOTES.md. The old v6.0.2 candidate tag was absent and has been replaced only in
+backend-owned Compose/docs. No shared API contract fields or frontend files changed.
+
+New read-only routes: `POST /api/session`, `GET /api/session`, `GET /api/promises`,
+`GET /api/promises/{promise_id}`, `GET /api/promises/{promise_id}/verify`. Promise list/detail
+are tenant-scoped and PUBLIC_DEMO-only through real FalkorDB queries. Verification distinguishes
+cryptographic integrity from unavailable source/audit checks and never marks action eligible.
+No seed command, source import, review mutation, scenario or action API exists yet; frontend
+should continue mock mode. Historical `version_id` and risk filtering remain pending.

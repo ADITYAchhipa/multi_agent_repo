@@ -1,5 +1,9 @@
 # Next Codex Session Handoff
 
+> **Continuation update, 2026-10-12:** The main body below records the previous baseline at
+> commit `b55540a`. It is historical where superseded. Verified new progress is appended at
+> the end and in `docs/IMPLEMENTATION_NOTES.md`; do not repeat the Docker-unavailable diagnosis.
+
 **Prepared:** 2026-10-12
 **Scope:** handoff documentation only. This file reports the backend state and does not mark the MVP complete.
 
@@ -114,6 +118,43 @@ cd backend
 .venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
 ```
 
+## Continuation results — 2026-10-12 (supersedes Docker blocker above)
+
+- **Verified runtime:** Homebrew Docker CLI 29.9.0, Compose 5.6.0, Colima 0.10.3. FalkorDB
+  container v4.20.4 is healthy; logs report server 4.20.4, Redis 8.6.3. Pulled ARM64 image
+  digest: `sha256:adbddd418916c25618564ff8597a919b08bc76452ebeb74eb985c38d7281df62`.
+  The old `v6.0.2` candidate did not exist and was replaced in backend Compose. Python client
+  remains locked at 1.7.1. Production image signature/restore behavior is unverified.
+- **Verified tests:** `cd backend && RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest -q` yielded
+  **91 passed, no skips, 1 Starlette warning**. This includes the four original spike tests
+  and one new graph-backed Promise API integration test. Offline-only run yielded 86 passed,
+  5 explicit opt-in skips, 1 warning. Ruff check and format check passed after fixes.
+- **Implemented routes:** `POST /api/session`, `GET /api/session`, `GET /api/promises`,
+  `GET /api/promises/{promise_id}`, `GET /api/promises/{promise_id}/verify`, in addition to
+  existing `GET /api/health`. Sessions use server-configured demo users and signed HttpOnly
+  cookies. Promise reads use bounded parameterized Cypher and server-selected tenant graphs;
+  PUBLIC_DEMO graph ACL only. Verification checks canonical digest/signature with configured
+  public keys but marks retained source bytes/audit chain UNAVAILABLE and action eligibility
+  false. See `backend/app/api/`, `backend/app/auth.py`, `backend/app/graph/repository.py`,
+  `backend/app/graph/queries/promises.py`, `backend/tests/integration/test_promise_query.py`.
+- **Still blocked/incomplete:** no application source artifact retention, graph writer,
+  append-only receipt/audit publication, historical version read, review mutation, calculations,
+  scenarios, approval/action/mock read-back, full demo or frontend integration. Live connectors
+  remain unconfigured. The current list's `risk` filter and detail `version_id` return errors
+  rather than misleading responses. The frozen shared API contract is unchanged; these routes
+  are partial coverage, not full contract completion.
+- **Continue commands:** from repo root, `docker-compose -f backend/compose.spike.yaml config`,
+  `docker-compose --progress quiet -f backend/compose.spike.yaml up -d --wait`; then
+  `cd backend && RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest -q` and
+  `.venv/bin/ruff check . && .venv/bin/ruff format --check .`. Homebrew Compose is a standalone
+  `docker-compose` executable here; `docker compose` was not configured as a CLI plugin.
+
+**Immediate next task:** implement retained source bytes/version/hash plus an idempotent,
+atomic tenant-scoped graph publication path for PROPOSED receipts and audit events. Test the
+source→receipt→graph→read-back flow on a disposable FalkorDB graph before expanding review or
+actions. This continuation's commit and push status must be checked with Git; the historical
+branch/commit fields earlier in this document are not current once this section is committed.
+
 To create a local settings file, copy `backend/.env.example` to `backend/.env`. The current defaults point at local FalkorDB port 6379 and graph `company_demo`; no signing secret is generated. Do not place real credentials in this handoff.
 
 With Docker installed/running, the documented disposable spike commands are:
@@ -161,5 +202,5 @@ Before using the integration test, confirm the server is disposable: it creates 
 ## Ready-to-paste continuation prompt
 
 ```text
-Continue PromiseOps + PromiseSeal backend implementation in /Users/sama/Downloads/promiseops-backend on branch feat/backend. First inspect current git status and read docs/NEXT_SESSION_HANDOFF.md, docs/IMPLEMENTATION_NOTES.md, docs/BACKEND_COORDINATION.md, docs/API_CONTRACTS.md, docs/IMPLEMENTATION_PLAN.md, docs/FALKORDB_SCHEMA.md, and docs/PROMISESEAL_PROTOCOL.md. Preserve the committed backend foundation; do not repeat its 84 passing offline tests or claim the four skipped FalkorDB tests passed. Immediate next action: make Docker available if possible, run the documented compose compatibility spike against a disposable FalkorDB server, record image digest/version, and diagnose the four opt-in tests. If Docker is still unavailable, report that evidence and do only useful work independent of unverified graph semantics. After the S01 graph compatibility and atomic publication gate passes, implement the next narrow no-LLM graph/source/receipt vertical slice using the frozen docs/API_CONTRACTS.md exactly. Do not modify frontend-owned files, invent live workload mappings, alter shared API schemas without a proposal, use another state database, or claim any test/integration passed unless actually run. Keep docs/NEXT_SESSION_HANDOFF.md and docs/IMPLEMENTATION_NOTES.md current with commands, actual outcomes, blockers, and commit/push status.
+Continue PromiseOps + PromiseSeal backend implementation in /Users/sama/Downloads/promiseops-backend on feat/backend. Inspect current git status and read the continuation below plus docs/IMPLEMENTATION_NOTES.md, docs/BACKEND_COORDINATION.md and frozen docs/API_CONTRACTS.md. Preserve the current foundation and read-only graph API. Docker/Colima and FalkorDB v4.20.4 have already been run; the four original compatibility tests and the new graph API test passed with the 1.7.1 client. Do not repeat this spike without a reason. Immediate next action: implement source artifact retention, idempotent tenant-scoped graph publication and append-only PromiseSeal history, then complete historical receipt reads, review and full evidence/audit verification. Follow with financial/scenario logic and approval-gated mock action read-back before frontend integration. Test every new graph query against the real server; do not claim unfinished routes or source checks work. Keep docs/API_CONTRACTS.md unchanged unless a coordinated proposal is approved, do not alter frontend-owned files or invent live workload mappings, and commit/push only verified progress to feat/backend.
 ```

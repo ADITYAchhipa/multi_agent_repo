@@ -113,3 +113,44 @@ The initial API/crypto slice is useful independently but is not a completed MVP 
 
 No GitHub MCP configured. Endpoint status is in BACKEND_COORDINATION.md; API_CONTRACTS.md is
 untouched. Commit/push result will be reported after checks.
+
+## 2026-10-12 continuation: real graph gate and read-only API slice
+
+Earlier phase-0 notes above are historical. This continuation installed Docker CLI 29.9.0,
+Compose 5.6.0 and Colima 0.10.3, then pulled `falkordb/falkordb:v4.20.4`. The old candidate
+`v6.0.2` returned Docker Hub `not found`. The pulled ARM64 digest was
+`falkordb/falkordb@sha256:adbddd418916c25618564ff8597a919b08bc76452ebeb74eb985c38d7281df62`.
+Container logs identify FalkorDB 4.20.4 and Redis 8.6.3; Compose reported healthy. Official
+Python client 1.7.1 remains locked. Docker server reported 29.5.2. Image signature/security
+and production deployment were not verified.
+
+`docker-compose -f backend/compose.spike.yaml config` passed. The pinned image started with
+`docker-compose --progress quiet -f backend/compose.spike.yaml up -d --wait`. The four formerly
+skipped S01 tests passed against that server: parameter binding/read-only rejection, index and
+tenant-scoped path, single-winner conditional publication under four threads, and failed-write
+rollback. They do not prove restart/restore durability, native uniqueness or all Q01–Q10 queries.
+
+Added configured local demo sessions (server-side actor/tenant/roles, signed HttpOnly cookie),
+server-selected tenant graph, fixed read-only promise queries, bounded cursor, Promise Inbox,
+current detail and current receipt verification routes. Detail reads a stored receipt, checks
+accessible source-version metadata, and returns an actual Promise→Version edge ID. Verification
+checks canonical bytes/signature with configured public keys; retained source bytes and audit
+chain are explicitly UNAVAILABLE and `eligible_for_action` is false. A disposable graph API test
+checks tenant isolation, cursor binding, detail, valid integrity and altered-payload detection.
+No application source artifact ingestion or persistence writer exists yet.
+
+| Command | Actual result |
+|---|---|
+| `cd backend && RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest tests/integration -v` | 5 passed, 1 Starlette warning |
+| `cd backend && RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest -q` | 91 passed, 1 Starlette warning, no skips |
+| `cd backend && .venv/bin/pytest -q` | 86 passed, 5 opt-in graph skips, 1 warning |
+| `cd backend && .venv/bin/ruff format --check .` | Passed after formatting |
+| `cd backend && .venv/bin/ruff check .` | Passed after import cleanup |
+| Targeted tampered graph API test | 1 passed, 1 Starlette warning |
+
+Contract coverage is partial. Session logout, historical receipt reads, source upload/retention,
+reviews, graph health, finance/simulations, approval/action/mock read-back, connectors,
+trace/audit/operations and full demo remain unimplemented. `risk` filtering and historical
+`version_id` currently reject rather than return incorrect data. Current scope/freshness are
+UNKNOWN and no calculation or execution conclusion is made. Frontend remains mock-only.
+`docs/API_CONTRACTS.md` was not changed.

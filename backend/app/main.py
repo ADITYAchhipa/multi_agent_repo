@@ -12,8 +12,11 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
+from app.api.promises import router as promises_router
+from app.api.session import router as session_router
 from app.config import Settings
 from app.graph.connection import GraphConnection, GraphUnavailable
+from app.graph.repository import GraphRepository
 from app.models.api import ErrorBody, ErrorResponse, HealthResponse, Services
 
 logger = logging.getLogger("promiseops.api")
@@ -58,8 +61,8 @@ def create_app(settings: Settings | None = None, graph: GraphConnection | None =
         CORSMiddleware,
         allow_origins=settings.frontend_origins,
         allow_credentials=True,
-        allow_methods=["GET"],
-        allow_headers=["X-Request-ID"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["X-Request-ID", "Content-Type", "Idempotency-Key"],
         expose_headers=["X-Request-ID"],
     )
 
@@ -118,5 +121,8 @@ def create_app(settings: Settings | None = None, graph: GraphConnection | None =
     @app.get("/internal/live", include_in_schema=False)
     def live(request: Request):
         return {"request_id": request.state.request_id, "status": "OK"}
+
+    app.include_router(session_router(settings))
+    app.include_router(promises_router(settings, GraphRepository(graph)))
 
     return app
