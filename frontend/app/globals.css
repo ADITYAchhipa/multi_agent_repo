@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "@xyflow/react/dist/style.css";
+
+:root {
+  --color-bg-app: #f8fafc;
+  --color-surface-card: #ffffff;
+  --color-border-card: #e2e8f0;
+  --color-navy-nav: #0f172a;
+  --color-navy-active: #1e293b;
+  --color-brand-blue: #1481ee;
+}
+
+body {
+  background-color: var(--color-bg-app);
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom focus ring */
+*:focus-visible {
+  outline: 2px solid #1481ee;
+  outline-offset: 2px;
+}
+
+/* Ensure no gradients */
+.no-gradient {
+  background-image: none !important;
+}
+
+/* Clean scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* React Flow custom solid styling */
+.react-flow__node {
+  border-radius: 6px;
+  font-family: inherit;
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background-color: #0f172a;
+}
