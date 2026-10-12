@@ -11,6 +11,8 @@ from app.auth import authenticate
 from app.config import Settings
 from app.graph.connection import GraphUnavailable
 from app.graph.repository import GraphRepository
+from app.ingestion.artifacts import ArtifactStore
+from app.ingestion.quote_verifier import verify_quote
 from app.models.common import Id
 from app.models.promises import (
     Freshness,
@@ -18,6 +20,8 @@ from app.models.promises import (
     PromiseCollection,
     PromiseDetail,
     PromiseSummary,
+    ReceiptVerifyRequest,
+    ReceiptVerifyResponse,
     ScopeAssessment,
     SourceVerification,
     Verification,
@@ -108,6 +112,7 @@ def _summary(row: list, now: str) -> PromiseSummary:
 def router(settings: Settings, repository: GraphRepository) -> APIRouter:
     api = APIRouter()
     registry = configured_registry(settings)
+    artifacts = ArtifactStore(settings.source_storage_root)
 
     @api.get("/api/promises", response_model=PromiseCollection)
     def list_promises(
@@ -231,11 +236,48 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             ],
         )
 
-    @api.get("/api/promises/{promise_id}/verify", response_model=VerifyResponse)
-    def verify(request: Request, promise_id: Id, version_id: Id | None = None):
-        detail_result = detail(request, promise_id, version_id)
-        current = authenticate(request, settings)
-        byte_result = verify_bytes(detail_result.receipt, registry, tenant_id=current.tenant_id)
+    def evaluate(receipt: ReceiptEnvelope, tenant_id: str, standing: str) -> Verification:
+        byte_result = verify_bytes(receipt, registry, tenant_id=tenant_id)
+        source_results = []
+        for ref in receipt.payload.source_refs:
+            try:
+                raw = artifacts.read(tenant_id, ref.source_hash, "raw")
+                representation = artifacts.read(
+                    tenant_id, ref.representation_hash, "representation"
+                ).decode("utf-8", errors="strict")
+                matching = verify_quote(raw, representation, ref)
+                source_results.append(
+                    SourceVerification(
+                        evidence_ref_id=ref.evidence_ref_id,
+                        result="MATCH" if matching else "MISMATCH",
+                        reason="Exact retained bytes and quote match."
+                        if matching
+                        else "Retained bytes or exact quote do not match.",
+                    )
+                )
+            except FileNotFoundError:
+                source_results.append(
+                    SourceVerification(
+                        evidence_ref_id=ref.evidence_ref_id,
+                        result="UNAVAILABLE",
+                        reason="Retained source artifact is unavailable.",
+                    )
+                )
+            except ValueError, UnicodeDecodeError:
+                source_results.append(
+                    SourceVerification(
+                        evidence_ref_id=ref.evidence_ref_id,
+                        result="MISMATCH",
+                        reason="Retained source artifact failed validation.",
+                    )
+                )
+        source_check = (
+            "FAIL"
+            if any(item.result == "MISMATCH" for item in source_results)
+            else "UNAVAILABLE"
+            if any(item.result == "UNAVAILABLE" for item in source_results)
+            else "PASS"
+        )
         checks = [
             VerificationCheck(
                 code="PAYLOAD_AND_SIGNATURE",
@@ -246,8 +288,8 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             ),
             VerificationCheck(
                 code="RETAINED_SOURCE_BYTES",
-                result="UNAVAILABLE",
-                reason="Retained source artifact read-back is not implemented.",
+                result=source_check,
+                reason=None if source_check == "PASS" else "Source evidence is not fully verified.",
             ),
             VerificationCheck(
                 code="AUDIT_CHAIN",
@@ -255,25 +297,48 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
                 reason="Graph audit-chain verification is not implemented.",
             ),
         ]
+        return Verification(
+            integrity=byte_result.integrity,
+            standing=standing,
+            checked_at=_timestamp(),
+            checks=checks,
+            source_results=source_results,
+            key_trust=byte_result.key_trust,
+            eligible_for_action=False,
+        )
+
+    @api.get("/api/promises/{promise_id}/verify", response_model=VerifyResponse)
+    def verify(request: Request, promise_id: Id, version_id: Id | None = None):
+        detail_result = detail(request, promise_id, version_id)
+        current = authenticate(request, settings)
         return VerifyResponse(
             request_id=request.state.request_id,
             receipt_id=detail_result.receipt.payload.receipt_id,
-            verification=Verification(
-                integrity=byte_result.integrity,
-                standing=detail_result.promise.receipt_standing,
-                checked_at=_timestamp(),
-                checks=checks,
-                source_results=[
-                    SourceVerification(
-                        evidence_ref_id=ref.evidence_ref_id,
-                        result="UNAVAILABLE",
-                        reason="Retained source artifact read-back is not implemented.",
-                    )
-                    for ref in detail_result.receipt.payload.source_refs
-                ],
-                key_trust=byte_result.key_trust,
-                eligible_for_action=False,
+            verification=evaluate(
+                detail_result.receipt,
+                current.tenant_id,
+                detail_result.promise.receipt_standing,
             ),
+        )
+
+    @api.post("/api/receipts/verify", response_model=ReceiptVerifyResponse)
+    def verify_copy(request: Request, body: ReceiptVerifyRequest):
+        actor = authenticate(request, settings)
+        receipt = body.receipt
+        if receipt.payload.tenant_id != actor.tenant_id:
+            raise HTTPException(404)
+        if len(receipt.model_dump_json().encode("utf-8")) > 1024 * 1024:
+            raise HTTPException(413)
+        stored = detail(request, receipt.payload.promise_id)
+        if stored.receipt.payload.receipt_id != receipt.payload.receipt_id:
+            raise HTTPException(404)
+        if [ref.evidence_ref_id for ref in stored.receipt.payload.source_refs] != [
+            ref.evidence_ref_id for ref in receipt.payload.source_refs
+        ]:
+            raise HTTPException(404)
+        return ReceiptVerifyResponse(
+            request_id=request.state.request_id,
+            verification=evaluate(receipt, actor.tenant_id, stored.promise.receipt_standing),
         )
 
     return api

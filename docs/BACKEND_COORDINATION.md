@@ -40,3 +40,16 @@ are tenant-scoped and PUBLIC_DEMO-only through real FalkorDB queries. Verificati
 cryptographic integrity from unavailable source/audit checks and never marks action eligible.
 No seed command, source import, review mutation, scenario or action API exists yet; frontend
 should continue mock mode. Historical `version_id` and risk filtering remain pending.
+
+## Source publication update — 2026-10-12
+
+Additional backend routes now implemented and real-graph tested: admin
+`POST /api/sources/upload` for `.txt`/`.md`, `GET /api/sources/{source_id}`,
+`GET /api/operations/{operation_id}`, admin `GET /api/audit/verify`, and nonpersisting
+`POST /api/receipts/verify`. Source uploads need configured demo session, runtime signing
+private-key mount and matching public key; no key/credential ships in the repository. A
+one-time `python -m app.scripts.init_graph --tenant tenant-demo` command initializes a
+configured empty graph. The opted-in full suite passed 95 tests against FalkorDB 4.20.4;
+exact commands/limits are in IMPLEMENTATION_NOTES.md. Frontend should still use mock mode for
+promise review, scenarios and actions, which are not implemented. The shared API contract is
+unchanged; unsupported upload types and optional meeting context are rejected explicitly.

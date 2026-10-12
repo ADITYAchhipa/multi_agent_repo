@@ -7,6 +7,7 @@ from falkordb import FalkorDB
 from fastapi.testclient import TestClient
 
 from app.config import DemoUser, PublicKeyConfig, Settings
+from app.ingestion.artifacts import ArtifactStore
 from app.main import create_app
 from app.promise_seal.canonicalize import canonical_bytes
 from app.promise_seal.crypto import sign
@@ -14,7 +15,7 @@ from app.promise_seal.crypto import sign
 pytestmark = pytest.mark.integration
 
 
-def test_promise_list_is_tenant_scoped_and_cursor_bound(payload, keys):
+def test_promise_list_is_tenant_scoped_and_cursor_bound(payload, keys, tmp_path):
     if os.environ.get("RUN_FALKORDB_INTEGRATION") != "1":
         pytest.skip("set RUN_FALKORDB_INTEGRATION=1 with a real disposable FalkorDB server")
     db = FalkorDB(host="127.0.0.1", port=16379, socket_timeout=3)
@@ -103,6 +104,7 @@ def test_promise_list_is_tenant_scoped_and_cursor_bound(payload, keys):
                 )
             },
             session_secret="test-session-secret-with-sufficient-length",
+            source_storage_root=tmp_path / "sources",
             public_keys=[
                 PublicKeyConfig(
                     tenant_id="tenant-demo",
@@ -116,6 +118,8 @@ def test_promise_list_is_tenant_scoped_and_cursor_bound(payload, keys):
                 )
             ],
         )
+        store = ArtifactStore(settings.source_storage_root)
+        store.save_text("tenant-demo", payload.statement.exact_excerpt.encode())
         with TestClient(create_app(settings)) as client:
             assert client.get("/api/promises").status_code == 401
             client.post("/api/session", json={"credential": "test-credential"})
@@ -143,9 +147,19 @@ def test_promise_list_is_tenant_scoped_and_cursor_bound(payload, keys):
             assert verification.status_code == 200, verification.text
             assert verification.json()["verification"]["integrity"] == "VALID"
             assert verification.json()["verification"]["eligible_for_action"] is False
-            assert (
-                verification.json()["verification"]["source_results"][0]["result"] == "UNAVAILABLE"
+            assert verification.json()["verification"]["source_results"][0]["result"] == "MATCH"
+            copy = receipt.model_dump(mode="json")
+            copy["payload"]["deliverable"] = "Unapproved free work"
+            copy_result = client.post("/api/receipts/verify", json={"receipt": copy})
+            assert copy_result.status_code == 200, copy_result.text
+            assert copy_result.json()["verification"]["integrity"] == "INVALID"
+            artifact_path = store._path("tenant-demo", evidence.source_hash, "raw")
+            artifact_path.write_bytes(b"tampered bytes")
+            mismatched_source = client.get("/api/promises/promise-loyalty/verify")
+            assert mismatched_source.json()["verification"]["source_results"][0]["result"] == (
+                "MISMATCH"
             )
+            artifact_path.write_bytes(payload.statement.exact_excerpt.encode())
             altered = (
                 canonical_bytes(payload.model_dump(mode="json"))
                 .decode()

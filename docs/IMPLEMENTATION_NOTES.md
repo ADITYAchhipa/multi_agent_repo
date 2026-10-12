@@ -154,3 +154,48 @@ trace/audit/operations and full demo remain unimplemented. `risk` filtering and 
 `version_id` currently reject rather than return incorrect data. Current scope/freshness are
 UNKNOWN and no calculation or execution conclusion is made. Frontend remains mock-only.
 `docs/API_CONTRACTS.md` was not changed.
+
+## 2026-10-12 continuation: source/artifact/audit slice
+
+Implemented a backend-owned, local-demo text source path while keeping FalkorDB as the only
+application state database. `POST /api/sources/upload` accepts admin-authenticated UTF-8
+`.txt`/`.md` files (20 MiB bound) with an idempotency key. Exact raw bytes and normalized
+representation bytes are stored by SHA-256 in gitignored `backend/data/sources/`; graph records
+are the authoritative artifact index. A single conditional Cypher statement publishes a source
+version, completed OperationRun, signed AuditEvent and GraphState revision/head. Reuse of the
+same key/body returns the original operation with the current request ID; same key/different
+body is 409; a new key with unchanged bytes yields NO_CHANGE; a stable `source_key` with changed
+bytes creates a new version. A configured Ed25519 runtime private key and matching trusted public
+key are required before writes. The private key is never stored in the graph or source tree.
+
+`GET /api/sources/{source_id}` and `GET /api/operations/{operation_id}` read these graph records.
+Admin `GET /api/audit/verify` checks the local signed chain against GraphState; it explicitly
+reports that no external rollback checkpoint exists. Receipt GET verification now re-reads
+retained source artifacts and validates exact quote offsets/hashes when available. The
+nonpersisting `POST /api/receipts/verify` detects a tampered copy without changing the graph.
+Receipt audit/history verification and action eligibility remain unavailable/false. An explicit
+`python -m app.scripts.init_graph --tenant tenant-demo` command initializes only a configured
+empty graph and refuses an existing graph; index syntax and the CLI were tested on disposable
+real graphs. No automatic promise extraction or review/version writer exists yet.
+
+Pinned `python-multipart==0.0.32` after checking its published PyPI package metadata, then
+updated `backend/uv.lock`. `UV_CACHE_DIR=/private/tmp/promiseops-uv-cache uv lock --project backend`
+failed in the sandbox because DNS was unavailable; the approved network retry resolved 59
+packages. Locked sync installed the new package. `pip-audit` then reported **57 dependencies,
+0 known vulnerabilities**, exit 0. This is a Python dependency advisory check, not a server
+image/credential or source-content security review.
+
+Final verified commands for this slice: `cd backend && RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest -q`
+→ **95 passed, no skips, 1 Starlette warning**; `ruff check .` and `ruff format --check .`
+passed after formatting. `docker-compose ... config` and `up -d --wait` previously passed;
+`init_graph` CLI ran successfully against `spike_cli_20261012_1340`, which was then deleted.
+The real graph tests include source version/idempotency/role/filename checks, local signed audit
+chain/tamper detection, source byte/quote verification, receipt-copy tamper detection and graph
+initializer refusal to overwrite. The warning remains the existing TestClient deprecation.
+
+Still pending: VTT/meeting-context and structured imports, SourceChunk/candidate extraction,
+source reprocess/retire, complete PromiseSeal append-only review history, historical reads,
+full graph query catalogue, finance/scenarios, action policy/approval/ledger/mock read-back,
+frontend integration and full e2e demo. The current upload returns an OperationRun completed
+synchronously behind the contract's 202 operation response. No live connector credentials or
+workload mappings were supplied; no live connector was activated. Frozen API contract unchanged.

@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
@@ -38,6 +39,10 @@ class Settings(BaseSettings):
     demo_users: dict[str, DemoUser] = {}
     session_secret: SecretStr | None = None
     public_keys: list[PublicKeyConfig] = []
+    source_storage_root: Path = Path("data/sources")
+    signing_private_key_path: Path | None = None
+    signing_key_id: str | None = None
+    signing_issuer_id: str | None = None
 
     @model_validator(mode="after")
     def validate_deployment(self) -> Self:
@@ -50,6 +55,13 @@ class Settings(BaseSettings):
             raise ValueError("session_secret is required for demo users")
         if any(user.tenant_id not in self.tenant_graphs for user in self.demo_users.values()):
             raise ValueError("every demo user requires a configured tenant graph")
+        signing = (
+            self.signing_private_key_path,
+            self.signing_key_id,
+            self.signing_issuer_id,
+        )
+        if any(value is not None for value in signing) and any(value is None for value in signing):
+            raise ValueError("signing key path, key ID and issuer ID must be configured together")
         for origin in self.frontend_origins:
             parsed = urlsplit(origin)
             if (

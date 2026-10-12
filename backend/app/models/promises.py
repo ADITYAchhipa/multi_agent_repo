@@ -107,3 +107,12 @@ class VerifyResponse(StrictModel):
     request_id: str
     receipt_id: Id
     verification: Verification
+
+
+class ReceiptVerifyRequest(StrictModel):
+    receipt: ReceiptEnvelope
+
+
+class ReceiptVerifyResponse(StrictModel):
+    request_id: str
+    verification: Verification

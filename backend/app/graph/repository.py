@@ -3,7 +3,7 @@
 from redis.exceptions import RedisError
 
 from app.graph.connection import GraphConnection, GraphUnavailable
-from app.graph.queries import promises
+from app.graph.queries import promises, sources
 
 
 class GraphRepository:
@@ -86,3 +86,25 @@ class GraphRepository:
                 {"tenant": tenant_id, "version": version_id},
             )
         ]
+
+    def source_detail(self, tenant_id: str, source_id: str, admin: bool = False):
+        return self._read(
+            tenant_id,
+            sources.SOURCE_DETAIL,
+            {"tenant": tenant_id, "source": source_id, "admin": admin},
+        )
+
+    def operation(self, tenant_id: str, actor_id: str, operation_id: str, admin: bool):
+        rows = self._read(
+            tenant_id,
+            sources.OPERATION,
+            {"tenant": tenant_id, "actor": actor_id, "operation": operation_id, "admin": admin},
+        )
+        return rows[0] if rows else None
+
+    def audit_chain(self, tenant_id: str):
+        state = self._read(tenant_id, sources.AUDIT_STATE, {"tenant": tenant_id})
+        if not state:
+            raise GraphUnavailable("graph audit state is unavailable")
+        events = self._read(tenant_id, sources.AUDIT_EVENTS, {"tenant": tenant_id})
+        return state[0], events

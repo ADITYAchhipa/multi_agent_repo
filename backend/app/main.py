@@ -12,12 +12,15 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
+from app.api.audit import router as audit_router
 from app.api.promises import router as promises_router
 from app.api.session import router as session_router
+from app.api.sources import router as sources_router
 from app.config import Settings
 from app.graph.connection import GraphConnection, GraphUnavailable
 from app.graph.repository import GraphRepository
 from app.models.api import ErrorBody, ErrorResponse, HealthResponse, Services
+from app.services.source_ingest import SourceConflict, SourceIngestService
 
 logger = logging.getLogger("promiseops.api")
 
@@ -95,6 +98,15 @@ def create_app(settings: Settings | None = None, graph: GraphConnection | None =
     async def unavailable(request, exc):
         return error(request, 503, "GRAPH_UNAVAILABLE", "Required graph is unavailable.")
 
+    @app.exception_handler(SourceConflict)
+    async def source_conflict(request, exc):
+        return error(
+            request,
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "Source publication conflicts with current state.",
+        )
+
     @app.exception_handler(HTTPException)
     async def http_error(request, exc):
         codes = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED", 401: "UNAUTHORIZED", 403: "FORBIDDEN"}
@@ -124,5 +136,9 @@ def create_app(settings: Settings | None = None, graph: GraphConnection | None =
 
     app.include_router(session_router(settings))
     app.include_router(promises_router(settings, GraphRepository(graph)))
+    app.include_router(
+        sources_router(settings, GraphRepository(graph), SourceIngestService(settings, graph))
+    )
+    app.include_router(audit_router(settings, GraphRepository(graph)))
 
     return app

@@ -201,6 +201,16 @@ Before using the integration test, confirm the server is disposable: it creates 
 
 ## Ready-to-paste continuation prompt
 
+**Later verified update:** Source upload and artifact retention are now implemented for local
+UTF-8 `.txt`/`.md` files. `POST /api/sources/upload`, source/operation reads, local signed
+`GET /api/audit/verify`, nonpersisting `POST /api/receipts/verify`, and a one-time configured
+graph initializer passed real FalkorDB tests. Full opted-in suite: **95 passed, 0 skipped,
+1 existing Starlette warning**; `pip-audit`: **57 dependencies, 0 known vulnerabilities**.
+`python-multipart==0.0.32` is locked. Verification can check retained source bytes/quotes,
+but receipt history/audit eligibility and action authorization remain unavailable. The next
+milestone is source chunks/candidate → PROPOSED receipt graph publication and reviewer history;
+the earlier subsection calling source upload unimplemented is superseded by this update.
+
 ```text
-Continue PromiseOps + PromiseSeal backend implementation in /Users/sama/Downloads/promiseops-backend on feat/backend. Inspect current git status and read the continuation below plus docs/IMPLEMENTATION_NOTES.md, docs/BACKEND_COORDINATION.md and frozen docs/API_CONTRACTS.md. Preserve the current foundation and read-only graph API. Docker/Colima and FalkorDB v4.20.4 have already been run; the four original compatibility tests and the new graph API test passed with the 1.7.1 client. Do not repeat this spike without a reason. Immediate next action: implement source artifact retention, idempotent tenant-scoped graph publication and append-only PromiseSeal history, then complete historical receipt reads, review and full evidence/audit verification. Follow with financial/scenario logic and approval-gated mock action read-back before frontend integration. Test every new graph query against the real server; do not claim unfinished routes or source checks work. Keep docs/API_CONTRACTS.md unchanged unless a coordinated proposal is approved, do not alter frontend-owned files or invent live workload mappings, and commit/push only verified progress to feat/backend.
+Continue PromiseOps + PromiseSeal backend implementation in /Users/sama/Downloads/promiseops-backend on feat/backend. Inspect current git status and read docs/IMPLEMENTATION_NOTES.md, docs/BACKEND_COORDINATION.md and frozen docs/API_CONTRACTS.md. Preserve the graph-tested compatibility, session, promise-read, source upload/versioning, local artifact, signed audit and receipt-copy verification work. Docker/Colima and FalkorDB v4.20.4 with client 1.7.1 already passed the opted-in suite (95 tests at the last verified run). Immediate next action: implement source chunk/candidate extraction and atomic append-only PROPOSED PromiseSeal publication from exact retained evidence, then authorized review/history verification and the remaining contract routes. Follow with deterministic money/scenarios and approval-gated mock action read-back, then frontend integration. Do not claim local audit verification is an external checkpoint or receipt integrity is business confirmation. Test each new graph query against the real server, keep docs/API_CONTRACTS.md stable, do not edit frontend files or invent live workload mappings, and commit/push only verified progress to feat/backend.
 ```
