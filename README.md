@@ -2,11 +2,19 @@
 
 PromiseOps helps a B2B implementation company or managed IT service provider connect a customer commitment to signed scope, delivery work, capacity, and billing prerequisites. PromiseSeal is its versioned, verifiable commitment receipt. FalkorDB is the relationship reasoning and application state layer.
 
-**This workspace is specification-only. No application is implemented.** Inspection on 2026-10-12 found three Markdown input files, no package manifests, source tree, deployment files, or Git repository. This documentation task creates only Markdown. There are no application test results, running services, verified integrations, or dependency locks to report.
+**Backend implementation has begun; the complete product is not implemented.** The phase-0
+foundation includes health/readiness, strict receipt models, canonical signing, provenance checks,
+and tests. See [backend setup](backend/README.md), [actual results and blockers](docs/IMPLEMENTATION_NOTES.md),
+and [frontend coordination](docs/BACKEND_COORDINATION.md). Real FalkorDB compatibility is blocked
+because Docker is unavailable in the implementation environment; graph writes and action routes
+remain unimplemented. The rest of this index describes the preserved specification package.
 
 ## Authority and reading order
 
-The preserved [master build specification](PROMISEOPS_PROMISESEAL_CODEX_BUILD_SPEC.md) is the product baseline. The [documentation-only task](CODEX_DOCS_ONLY_PROMPT.md) and current user instruction override its instructions to implement code. [CODEX_START_PROMPT.md](CODEX_START_PROMPT.md) is historical context, not authorization to implement.
+The preserved [master build specification](PROMISEOPS_PROMISESEAL_CODEX_BUILD_SPEC.md) is the product baseline.
+The current backend implementation brief authorizes code. The earlier
+[documentation-only task](CODEX_DOCS_ONLY_PROMPT.md) and [CODEX_START_PROMPT.md](CODEX_START_PROMPT.md)
+remain historical inputs; their documentation-only restrictions do not govern the newly authorized build.
 
 Read this index, the decision log, design, schema, protocol, API contracts, and test plan before a later implementation task. Follow phases 0–5 only when implementation is separately authorized. Resolve a discrepancy using [DECISIONS_AND_OPEN_QUESTIONS.md](docs/DECISIONS_AND_OPEN_QUESTIONS.md); do not silently override the master. Draft contracts in this package are proposed implementation requirements, not deployed endpoints.
 
@@ -62,6 +70,7 @@ A **promise / commitment** is a candidate business undertaking; extraction alone
 3. **Add the UI, bounded agents, and approved mock action.** Follow phases 2–4, including server-enforced approval, safe execution and verified read-back.
 4. **Run the real-FalkorDB tests and reproducible demo before enabling live integrations.** Pass the mandatory gates and repeat the credential-free demo twice; activate each optional live connector only after its own contract, permission and consent checks also pass.
 
-The [implementation checklist](docs/IMPLEMENTATION_PLAN.md#implementation-checklist) maps these four steps to detailed tasks, dependencies and exit gates. All implementation steps remain NOT STARTED. Use the traceability matrix to record actual results when implementation is authorized. Keep demo/live states unmistakable; never guess workload endpoints, fabricate graph paths or interpret a signature as proof of agreement.
+The [implementation checklist](docs/IMPLEMENTATION_PLAN.md#implementation-checklist) maps these four steps to detailed tasks, dependencies and exit gates. Phase 0 is in progress; no full milestone gate is yet complete. The original plan's status labels describe its documentation phase; current results are in implementation notes. Keep demo/live states unmistakable; never guess workload endpoints, fabricate graph paths or interpret a signature as proof of agreement.
 
-No setup command is provided as a claim of current functionality. Deployment and test commands belong to a later implementation task, described as future work in the plan.
+Tested backend setup and offline test commands are in [backend/README.md](backend/README.md).
+Its graph commands are explicitly unverified follow-up commands, not completed deployment claims.

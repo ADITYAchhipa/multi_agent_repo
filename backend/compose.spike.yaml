@@ -1,0 +1,15 @@
+# Compatibility candidate only. Record RepoDigests and pass S01 before deployment.
+services:
+  falkordb:
+    image: falkordb/falkordb:v6.0.2
+    ports:
+      - "127.0.0.1:16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - spike_graph:/data
+volumes:
+  spike_graph:
