@@ -2,6 +2,10 @@ from typing import Literal
 
 from app.models.common import SafeInt, StrictModel
 
+ReceiptAuditEventType = Literal["SOURCE_IMPORTED", "SOURCE_UPDATED", "PROMISE_REVIEW"]
+GENESIS_RECEIPT_EVENT_TYPES = frozenset({"SOURCE_IMPORTED", "SOURCE_UPDATED"})
+SUCCESSOR_RECEIPT_EVENT_TYPE = "PROMISE_REVIEW"
+
 
 class CheckedRange(StrictModel):
     from_sequence: SafeInt

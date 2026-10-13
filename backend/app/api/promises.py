@@ -1,18 +1,23 @@
 import base64
+import hashlib
 import hmac
 import json
 import time
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
+from redis.exceptions import RedisError
 
-from app.auth import authenticate
+from app.auth import authenticate, require_role
 from app.config import Settings
 from app.graph.connection import GraphUnavailable
+from app.graph.queries import promises
 from app.graph.repository import GraphRepository
 from app.ingestion.artifacts import ArtifactStore
 from app.ingestion.quote_verifier import verify_quote
+from app.models.api import EvidenceRef
 from app.models.common import Id
 from app.models.promises import (
     Freshness,
@@ -22,6 +27,8 @@ from app.models.promises import (
     PromiseSummary,
     ReceiptVerifyRequest,
     ReceiptVerifyResponse,
+    ReviewRequest,
+    ReviewResponse,
     ScopeAssessment,
     SourceVerification,
     Verification,
@@ -29,10 +36,13 @@ from app.models.promises import (
     VerifyResponse,
     VersionSummary,
 )
-from app.promise_seal.canonicalize import strict_json
-from app.promise_seal.crypto import verify_bytes
+from app.promise_seal.canonicalize import canonical_bytes, digest, strict_json
+from app.promise_seal.crypto import load_private_key, sign, verify_bytes
+from app.promise_seal.lifecycle import check_parent, next_state
 from app.promise_seal.models import ReceiptEnvelope, ReceiptPayload
 from app.promise_seal.registry import configured_registry
+from app.services.audit import sign_audit
+from app.services.history import verify_history
 
 
 def _timestamp() -> str:
@@ -167,10 +177,7 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
     @api.get("/api/promises/{promise_id}", response_model=PromiseDetail)
     def detail(request: Request, promise_id: Id, version_id: Id | None = None):
         current = authenticate(request, settings)
-        if version_id is not None:
-            # Historical version access needs its own ACL/standing query.
-            raise HTTPException(400)
-        row = repository.promise_detail(current.tenant_id, promise_id)
+        row = repository.promise_detail(current.tenant_id, promise_id, version_id)
         if row is None:
             raise HTTPException(404)
         try:
@@ -206,7 +213,16 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
         revision = repository.graph_revision(current.tenant_id)
         return PromiseDetail(
             request_id=request.state.request_id,
-            promise=_summary(row, _timestamp()),
+            promise=_summary(row, _timestamp()).model_copy(
+                update={
+                    "customer_id": payload.customer_id,
+                    "project_id": payload.project_id,
+                    "deliverable": payload.deliverable,
+                    "deadline": payload.deadline.instant
+                    or payload.deadline.local_date
+                    or payload.deadline.original_text,
+                }
+            ),
             receipt=receipt,
             versions=versions,
             evidence=payload.source_refs,
@@ -278,6 +294,15 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             if any(item.result == "UNAVAILABLE" for item in source_results)
             else "PASS"
         )
+        history_result = "PASS"
+        history_reason = None
+        try:
+            history_result, history_reason = verify_history(
+                settings, repository, registry, tenant_id, receipt
+            )
+        except ValueError, TypeError, KeyError:
+            history_result = "FAIL"
+            history_reason = "Receipt history validation failed."
         checks = [
             VerificationCheck(
                 code="PAYLOAD_AND_SIGNATURE",
@@ -293,8 +318,13 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             ),
             VerificationCheck(
                 code="AUDIT_CHAIN",
-                result="UNAVAILABLE",
-                reason="Graph audit-chain verification is not implemented.",
+                result=history_result,
+                reason=history_reason,
+            ),
+            VerificationCheck(
+                code="RECEIPT_HISTORY",
+                result=history_result,
+                reason=history_reason,
             ),
         ]
         return Verification(
@@ -321,6 +351,336 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             ),
         )
 
+    @api.post("/api/promises/{promise_id}/review", response_model=ReviewResponse)
+    def review(
+        request: Request,
+        promise_id: Id,
+        body: ReviewRequest,
+        idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    ):
+        actor = authenticate(request, settings)
+        require_role(actor, "reviewer")
+        input_digest = hashlib.sha256(
+            canonical_bytes({"promise_id": promise_id, "body": body.model_dump(mode="json")})
+        ).hexdigest()
+        operation_id = (
+            "review-"
+            + hashlib.sha256(
+                f"{actor.tenant_id}\0{actor.id}\0{promise_id}\0{idempotency_key}".encode()
+            ).hexdigest()[:40]
+        )
+
+        def replay():
+            previous = repository.review_ledger(actor.tenant_id, actor.id, operation_id)
+            if previous is None:
+                return None
+            if previous[0] != input_digest:
+                raise HTTPException(409)
+            result = ReviewResponse.model_validate(strict_json(previous[1].encode()))
+            accessible = detail(request, promise_id, result.receipt.payload.receipt_id)
+            if accessible.receipt != result.receipt:
+                raise HTTPException(409)
+            return result.model_copy(update={"request_id": request.state.request_id})
+
+        previous = replay()
+        if previous is not None:
+            return previous
+        current_state = repository.review_state(actor.tenant_id, promise_id)
+        if current_state is None:
+            raise HTTPException(404)
+        graph_revision, sequence, prev_hash = current_state[:3]
+        current_detail = detail(request, promise_id)
+        if (
+            current_detail.promise.current_version_id != body.expected_version_id
+            or current_detail.promise.revision != body.expected_revision
+        ):
+            previous = replay()
+            if previous is not None:
+                return previous
+            raise HTTPException(409)
+        parent = current_detail.receipt
+        parent_refs = {ref.evidence_ref_id: ref for ref in parent.payload.source_refs}
+        if body.decision in {"CONFIRM", "FULFILL", "DISPUTE"} and not body.evidence_ref_ids:
+            raise HTTPException(422)
+        if body.decision == "CONFIRM" and not set(parent_refs).issubset(body.evidence_ref_ids):
+            raise HTTPException(409)
+        new_refs = []
+        for evidence_id in body.evidence_ref_ids:
+            if evidence_id in parent_refs:
+                continue
+            row = repository.review_evidence(actor.tenant_id, evidence_id)
+            if row is None:
+                raise HTTPException(422)
+            try:
+                raw = artifacts.read(actor.tenant_id, row[2], "raw")
+                representation = artifacts.read(actor.tenant_id, row[3], "representation").decode(
+                    "utf-8", errors="strict"
+                )
+                evidence = EvidenceRef(
+                    evidence_ref_id=evidence_id,
+                    source_id=row[0],
+                    source_version_id=row[1],
+                    source_hash=row[2],
+                    representation_hash=row[3],
+                    origin_reference=f"source:{row[0]}",
+                    quote=row[4],
+                    start_offset=row[5],
+                    end_offset=row[6],
+                    start_ms=None,
+                    end_ms=None,
+                    structured_pointer=None,
+                    source_updated_at=row[9],
+                    observed_at=row[8],
+                    verification="VERIFIED",
+                    access_label="PUBLIC_DEMO",
+                )
+                if (
+                    not verify_quote(raw, representation, evidence)
+                    or hashlib.sha256(row[4].encode()).hexdigest() != row[7]
+                ):
+                    raise ValueError("review evidence mismatch")
+                new_refs.append(evidence)
+            except OSError, ValueError, UnicodeDecodeError:
+                raise HTTPException(409) from None
+        if body.decision == "FULFILL":
+            if parent.payload.confirmation is None or not new_refs:
+                raise HTTPException(409)
+        if body.decision == "CONFIRM" and current_detail.promise.current_state == "DISPUTED":
+            # Conflict resolution is a separate, currently unsupported workflow.
+            raise HTTPException(409)
+        evidence_check = evaluate(parent, actor.tenant_id, current_detail.promise.receipt_standing)
+        if evidence_check.integrity != "VALID" or any(
+            check.result != "PASS" for check in evidence_check.checks
+        ):
+            previous = replay()
+            if previous is not None:
+                return previous
+            raise HTTPException(409)
+        try:
+            state = next_state(current_detail.promise.current_state, body.decision)
+        except ValueError:
+            raise HTTPException(409) from None
+        now = _timestamp()
+        event_id = "audit-" + uuid4().hex
+        values = parent.payload.model_dump(mode="json")
+        values["source_refs"] = [
+            item.model_dump(mode="json")
+            for item in sorted(
+                [*parent.payload.source_refs, *new_refs],
+                key=lambda ref: (
+                    ref.source_version_id,
+                    ref.start_offset if ref.start_offset is not None else -1,
+                    ref.end_offset if ref.end_offset is not None else -1,
+                    ref.evidence_ref_id,
+                ),
+            )
+        ]
+        content_fields = {
+            "statement",
+            "deliverable",
+            "customer_id",
+            "project_id",
+            "deadline",
+            "price_condition",
+            "commercial_value",
+            "commitment_class",
+        }
+        if body.decision == "REVISE":
+            if not content_fields.issuperset(body.revised_content):
+                raise HTTPException(422)
+            values.update(body.revised_content)
+        values.update(
+            {
+                "receipt_id": f"{promise_id}-v{parent.payload.version + 1}",
+                "version": parent.payload.version + 1,
+                "created_at": now,
+                "issued_at": now,
+                "status_at_issuance": state,
+                "review_event_id": event_id,
+                "previous_receipt_version_id": parent.payload.receipt_id,
+                "previous_payload_sha256": parent.payload_sha256,
+                "confirmation": None,
+                "signing_key_id": settings.signing_key_id,
+            }
+        )
+        if state == "CONFIRMED":
+            # Bind confirmation to the reviewed content, not the mutable status fields.
+            values["confirmation"] = {
+                "confirmed_by": actor.id,
+                "confirmed_at": now,
+                "confirmation_event_id": event_id,
+                "authority_scope": "configured reviewer role for tenant",
+                "reviewed_content_hash": digest(
+                    {
+                        key: values[key]
+                        for key in (
+                            "promise_id",
+                            "tenant_id",
+                            "statement",
+                            "deliverable",
+                            "customer_id",
+                            "project_id",
+                            "deadline",
+                            "price_condition",
+                            "commercial_value",
+                            "commitment_class",
+                            "source_refs",
+                            "contract_refs",
+                            "jira_refs",
+                            "workload_refs",
+                        )
+                    }
+                ),
+            }
+        elif state == "FULFILLED":
+            values["confirmation"] = {
+                "confirmed_by": actor.id,
+                "confirmed_at": now,
+                "confirmation_event_id": event_id,
+                "authority_scope": "configured reviewer role for tenant",
+                "reviewed_content_hash": digest(
+                    {
+                        key: values[key]
+                        for key in (
+                            "promise_id",
+                            "tenant_id",
+                            "statement",
+                            "deliverable",
+                            "customer_id",
+                            "project_id",
+                            "deadline",
+                            "price_condition",
+                            "commercial_value",
+                            "commitment_class",
+                            "source_refs",
+                            "contract_refs",
+                            "jira_refs",
+                            "workload_refs",
+                        )
+                    }
+                ),
+            }
+        if settings.signing_private_key_path is None or settings.signing_key_id is None:
+            raise GraphUnavailable("review signing is not configured")
+        try:
+            payload = ReceiptPayload.model_validate(values)
+            trusted = registry.get((actor.tenant_id, payload.issuer_id, settings.signing_key_id))
+            if trusted is None:
+                raise ValueError("review signing key is not trusted")
+            receipt = sign(payload, load_private_key(settings.signing_private_key_path), trusted)
+            check_parent(receipt, parent)
+        except ValueError, OSError, KeyError, TypeError:
+            raise HTTPException(422) from None
+        graph = repository.connection.graph_for_tenant(actor.tenant_id)
+        response_promise = current_detail.promise.model_copy(
+            update={
+                "current_version_id": payload.receipt_id,
+                "revision": body.expected_revision + 1,
+                "current_state": state,
+                "receipt_standing": "ACTIVE",
+                "customer_id": payload.customer_id,
+                "project_id": payload.project_id,
+                "deliverable": payload.deliverable,
+                "deadline": payload.deadline.instant
+                or payload.deadline.local_date
+                or payload.deadline.original_text,
+            }
+        )
+        response = ReviewResponse(
+            request_id=request.state.request_id,
+            promise=response_promise,
+            receipt=receipt,
+            audit_event_id=event_id,
+        )
+        audit_payload = {
+            "protocol_version": "promiseops-audit-v1",
+            "event_id": event_id,
+            "tenant_id": actor.tenant_id,
+            "sequence": sequence + 1,
+            "event_type": "PROMISE_REVIEW",
+            "actor_id": actor.id,
+            "occurred_at": now,
+            "request_id": request.state.request_id,
+            "payload": {
+                "promise_id": promise_id,
+                "receipt_id": payload.receipt_id,
+                "payload_sha256": receipt.payload_sha256,
+                "decision": body.decision,
+                "reason": body.reason,
+                "evidence_ref_ids": body.evidence_ref_ids,
+            },
+            "prev_event_hash": prev_hash,
+            "signing_key_id": settings.signing_key_id,
+        }
+        try:
+            audit = sign_audit(audit_payload, settings.signing_private_key_path)
+        except (OSError, ValueError) as exc:
+            raise GraphUnavailable("review signing key is unavailable") from exc
+        params = {
+            "tenant": actor.tenant_id,
+            "promise": promise_id,
+            "expected_version": body.expected_version_id,
+            "expected_revision": body.expected_revision,
+            "expected_graph_revision": graph_revision,
+            "expected_sequence": sequence,
+            "receipt_id": payload.receipt_id,
+            "version": payload.version,
+            "now": now,
+            "payload_json": canonical_bytes(payload.model_dump(mode="json")).decode(),
+            "payload_hash": receipt.payload_sha256,
+            "signature": receipt.signature_base64url,
+            "statement": payload.statement.exact_excerpt,
+            "deliverable": payload.deliverable,
+            "customer_id": payload.customer_id,
+            "project_id": payload.project_id,
+            "deadline_iso": payload.deadline.instant or payload.deadline.local_date,
+            "deadline_text": payload.deadline.original_text,
+            "commitment_class": payload.commitment_class,
+            "new_state": state,
+            "price_condition": payload.price_condition.kind,
+            "version_edge": f"edge-{uuid4().hex}",
+            "supersedes_edge": f"edge-{uuid4().hex}",
+            "event_edge": f"edge-{uuid4().hex}",
+            "provenance": canonical_bytes(
+                [
+                    {
+                        "review_event_id": event_id,
+                        "actor_id": actor.id,
+                        "evidence_ref_ids": body.evidence_ref_ids,
+                    }
+                ]
+            ).decode(),
+            "access_label": "PUBLIC_DEMO",
+            "actor": actor.id,
+            "audit_id": event_id,
+            "sequence": sequence + 1,
+            "prev_hash": prev_hash,
+            "audit_payload": audit.payload_json,
+            "audit_hash": audit.event_hash,
+            "audit_signature": audit.signature,
+            "key_id": settings.signing_key_id,
+            "request_id": request.state.request_id,
+            "operation": operation_id,
+            "input_digest": input_digest,
+            "input_json": canonical_bytes(
+                {"promise_id": promise_id, "body": body.model_dump(mode="json")}
+            ).decode(),
+            "result_json": canonical_bytes(response.model_dump(mode="json")).decode(),
+            "operation_event_edge": f"edge-{uuid4().hex}",
+        }
+        try:
+            rows = graph.query(
+                promises.PUBLISH_REVIEW, params=params, timeout=settings.falkordb_query_timeout_ms
+            ).result_set
+        except RedisError as exc:
+            raise GraphUnavailable("review publication failed") from exc
+        if not rows:
+            previous = replay()
+            if previous is not None:
+                return previous
+            raise HTTPException(409)
+        return response
+
     @api.post("/api/receipts/verify", response_model=ReceiptVerifyResponse)
     def verify_copy(request: Request, body: ReceiptVerifyRequest):
         actor = authenticate(request, settings)
@@ -329,7 +689,7 @@ def router(settings: Settings, repository: GraphRepository) -> APIRouter:
             raise HTTPException(404)
         if len(receipt.model_dump_json().encode("utf-8")) > 1024 * 1024:
             raise HTTPException(413)
-        stored = detail(request, receipt.payload.promise_id)
+        stored = detail(request, receipt.payload.promise_id, receipt.payload.receipt_id)
         if stored.receipt.payload.receipt_id != receipt.payload.receipt_id:
             raise HTTPException(404)
         if [ref.evidence_ref_id for ref in stored.receipt.payload.source_refs] != [

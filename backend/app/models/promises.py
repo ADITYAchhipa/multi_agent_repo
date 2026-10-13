@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.models.api import EvidenceRef
 from app.models.common import Id, SafeInt, StrictModel, Timestamp
@@ -78,6 +78,30 @@ class PromiseDetail(StrictModel):
     milestone_ids: list[Id]
     conflicts: list[dict]
     graph_paths: list[GraphPath]
+
+
+class ReviewRequest(StrictModel):
+    expected_version_id: Id
+    expected_revision: SafeInt
+    decision: Literal["CONFIRM", "DISPUTE", "REJECT", "FULFILL", "REVISE"]
+    reason: str = Field(min_length=1, max_length=2000)
+    evidence_ref_ids: list[Id] = Field(max_length=200)
+    revised_content: dict | None = None
+
+    @model_validator(mode="after")
+    def revision_content_matches_decision(self):
+        if (self.decision == "REVISE") != (self.revised_content is not None):
+            raise ValueError("revised_content is required only for REVISE")
+        if len(self.evidence_ref_ids) != len(set(self.evidence_ref_ids)):
+            raise ValueError("duplicate evidence reference")
+        return self
+
+
+class ReviewResponse(StrictModel):
+    request_id: str
+    promise: PromiseSummary
+    receipt: ReceiptEnvelope
+    audit_event_id: Id
 
 
 class VerificationCheck(StrictModel):

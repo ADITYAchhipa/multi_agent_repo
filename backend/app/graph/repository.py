@@ -46,12 +46,57 @@ class GraphRepository:
             },
         )
 
-    def promise_detail(self, tenant_id: str, promise_id: str):
-        rows = self._read(tenant_id, promises.DETAIL, {"tenant": tenant_id, "id": promise_id})
+    def promise_detail(self, tenant_id: str, promise_id: str, version_id: str | None = None):
+        rows = self._read(
+            tenant_id,
+            promises.DETAIL,
+            {"tenant": tenant_id, "id": promise_id, "version": version_id or ""},
+        )
         return rows[0] if rows else None
 
+    def _pages(self, tenant_id: str, query: str, params: dict):
+        # Stable tie-breakers preserve duplicate rows for validation, rather than skipping them.
+        offset = 0
+        while True:
+            rows = self._read(tenant_id, query, {**params, "offset": offset, "limit": 100})
+            yield from rows
+            if len(rows) < 100:
+                return
+            offset += len(rows)
+
     def promise_versions(self, tenant_id: str, promise_id: str):
-        return self._read(tenant_id, promises.VERSIONS, {"tenant": tenant_id, "id": promise_id})
+        return self._pages(tenant_id, promises.VERSIONS, {"tenant": tenant_id, "id": promise_id})
+
+    def history_state(self, tenant_id: str, promise_id: str):
+        rows = self._read(
+            tenant_id, promises.HISTORY_STATE, {"tenant": tenant_id, "id": promise_id}
+        )
+        return rows[0] if rows else None
+
+    def history_links(self, tenant_id: str, promise_id: str, version_id: str):
+        return self._read(
+            tenant_id,
+            promises.HISTORY_LINKS,
+            {"tenant": tenant_id, "id": promise_id, "version": version_id},
+        )
+
+    def review_state(self, tenant_id: str, promise_id: str):
+        rows = self._read(tenant_id, promises.REVIEW_STATE, {"tenant": tenant_id, "id": promise_id})
+        return rows[0] if rows else None
+
+    def review_evidence(self, tenant_id: str, evidence_id: str):
+        rows = self._read(
+            tenant_id, promises.REVIEW_EVIDENCE, {"tenant": tenant_id, "id": evidence_id}
+        )
+        return rows[0] if rows else None
+
+    def review_ledger(self, tenant_id: str, actor_id: str, operation_id: str):
+        rows = self._read(
+            tenant_id,
+            promises.REVIEW_LEDGER,
+            {"tenant": tenant_id, "actor": actor_id, "operation": operation_id},
+        )
+        return rows[0] if rows else None
 
     def source_version(self, tenant_id: str, source_id: str, version_id: str):
         rows = self._read(
@@ -102,9 +147,28 @@ class GraphRepository:
         )
         return rows[0] if rows else None
 
-    def audit_chain(self, tenant_id: str):
+    def source_chunks(
+        self, tenant_id: str, source_id: str, version_id: str, chunk_id: str | None, admin: bool
+    ):
+        return self._read(
+            tenant_id,
+            sources.SOURCE_CHUNKS,
+            {
+                "tenant": tenant_id,
+                "source": source_id,
+                "version": version_id,
+                "chunk": chunk_id or "",
+                "admin": admin,
+            },
+        )
+
+    def audit_boundary(self, tenant_id: str):
         state = self._read(tenant_id, sources.AUDIT_STATE, {"tenant": tenant_id})
-        if not state:
+        if not state or not isinstance(state[0][2], int):
             raise GraphUnavailable("graph audit state is unavailable")
-        events = self._read(tenant_id, sources.AUDIT_EVENTS, {"tenant": tenant_id})
-        return state[0], events
+        return state[0]
+
+    def audit_chain(self, tenant_id: str):
+        state = self.audit_boundary(tenant_id)
+        events = self._pages(tenant_id, sources.AUDIT_EVENTS, {"tenant": tenant_id})
+        return state, events

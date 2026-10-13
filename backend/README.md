@@ -2,7 +2,7 @@
 
 Phase 0 compatibility, tenant-scoped promise reads and bounded text-source publication are
 implemented. This is **not the complete business workflow**. The shared API contract in
-`../docs/API_CONTRACTS.md` is unchanged; route coverage remains partial.
+`../docs/API_CONTRACTS.md` maps implemented and proposed routes; route coverage remains partial.
 
 Python 3.14.7 is the available local runtime. Dependencies are pinned in `pyproject.toml`
 and locked with hashes in `uv.lock`. From the repository root:
@@ -28,8 +28,25 @@ header. It retains raw and normalized bytes under gitignored `data/sources/`, pu
 SourceRecord/SourceVersion, a completed OperationRun and a signed audit event in one conditional
 FalkorDB query. Repeat with the same key/body returns the same operation; a new key with unchanged
 source bytes returns NO_CHANGE; changed content with a stable `source_key` creates a new version.
-No promise is inferred or confirmed from an uploaded file yet. VTT, meeting context, structured
-imports and live connectors are not enabled.
+New versions include deterministic chunks of at most 4,000 Unicode scalars (paragraph boundaries
+preferred, no overlap). Uploads requiring more than 200 chunks return 422 before publication.
+Source detail returns snippets with retained-byte/hash/offset verification and supports optional
+`chunk_id` and `version_id`. Older versions are not backfilled on unchanged reupload.
+The deterministic `text-commitment-lines-v1` profile extracts complete lines beginning with
+`I`/`We` + `will`/`can` + `deliver`/`provide`/`complete`/`ship`/`build`. It handles only lines up to
+2,000 characters contained in one chunk, preserves their wording, and deduplicates identical
+quotes within a logical source. Other wording and lines crossing chunk boundaries are not
+extracted. More than 100 unique candidates rejects the upload with 422 before publication.
+
+Each new candidate gets a signed version-1 PROPOSED receipt with `ambiguous` commitment class.
+Identity, deadline and price remain unresolved; wording is preserved in the statement. Exact
+retained bytes and quote offsets are verified before signing. Promise, receipt, provenance
+edges and an audit digest manifest publish in the same conditional write as the source.
+Repeated uploads and unchanged statements in source revisions do not duplicate receipts;
+changed statements create separate proposals without resolving conflicts or superseding old
+ones. The signature attests receipt bytes, not business confirmation. Existing promise/detail
+and verification routes read these receipts; action eligibility stays false.
+VTT, meeting context, structured imports and live connectors are not enabled.
 
 `GET /api/health` probes the configured existing graph through the official synchronous
 FalkorDB client in a worker thread. It returns 503 while the graph is absent/unreachable;
@@ -39,15 +56,24 @@ sets a local HttpOnly cookie, `GET /api/session` reads the current identity, and
 `GET /api/promises` / `GET /api/promises/{promise_id}` query PUBLIC_DEMO tenant-scoped graph
 facts. `GET /api/promises/{promise_id}/verify` and nonpersisting `POST /api/receipts/verify`
 check canonical hash/signature plus available retained source bytes and exact quotes. Receipt
-audit/history checks remain unavailable, so action eligibility stays false. `GET /api/sources/{id}`,
+audit/history checks traverse the complete paginated histories; action eligibility stays false.
+`GET /api/sources/{id}`,
 `GET /api/operations/{id}` and admin `GET /api/audit/verify` read the graph publication. Audit
 verification checks the local chain against GraphState; it has no independent external checkpoint.
-Historical receipt reads, review writes, scenarios and actions remain pending.
+Historical receipt reads and authorized review writes are implemented. Historical selection
+preserves the promise's current-version pointer. Scenarios and actions remain pending.
 
 Offline tests include a source → exact evidence → PROPOSED receipt → signature → tampered-copy
 slice. Real graph tests cover source version publication, idempotency, local audit chain and
-source/artifact tamper detection. They do not establish automatic promise extraction, full
-receipt history, business confirmation, policy authorization or external action read-back.
+source/artifact tamper detection. They also cover the bounded deterministic upload-to-receipt flow and failed-write rollback.
+General language extraction, full business policy authorization and external action read-back
+remain unimplemented. Review verifies full signed history before appending a successor; it does
+not impose a 100-version lifecycle limit. Verification streams 100-row pages and retains only
+one predecessor, while response arrays still scale with the requested history. Full verification
+cost grows with tenant audit length and receipt history. Local audit checks cannot detect deletion
+of a signed suffix if the stored head is also rewound; that requires an independently stored,
+trusted checkpoint. Source uploads recover identical committed operations after cross-instance
+publication races; a different body under the same committed key remains a conflict.
 
 Real graph compatibility commands (the tested Homebrew Compose executable is `docker-compose`):
 

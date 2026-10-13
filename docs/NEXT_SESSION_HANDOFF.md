@@ -214,3 +214,103 @@ the earlier subsection calling source upload unimplemented is superseded by this
 ```text
 Continue PromiseOps + PromiseSeal backend implementation in /Users/sama/Downloads/promiseops-backend on feat/backend. Inspect current git status and read docs/IMPLEMENTATION_NOTES.md, docs/BACKEND_COORDINATION.md and frozen docs/API_CONTRACTS.md. Preserve the graph-tested compatibility, session, promise-read, source upload/versioning, local artifact, signed audit and receipt-copy verification work. Docker/Colima and FalkorDB v4.20.4 with client 1.7.1 already passed the opted-in suite (95 tests at the last verified run). Immediate next action: implement source chunk/candidate extraction and atomic append-only PROPOSED PromiseSeal publication from exact retained evidence, then authorized review/history verification and the remaining contract routes. Follow with deterministic money/scenarios and approval-gated mock action read-back, then frontend integration. Do not claim local audit verification is an external checkpoint or receipt integrity is business confirmation. Test each new graph query against the real server, keep docs/API_CONTRACTS.md stable, do not edit frontend files or invent live workload mappings, and commit/push only verified progress to feat/backend.
 ```
+
+## 2026-10-12 continuation: verified source chunks and snippet reads
+
+Reconciled current worktrees before implementation: backend HEAD was `7c7c955`, frontend
+`54154e2`, QA `98effeb`, audit `8f49aa7`. Remote backend was still `a5cfbdc`. The later QA
+report targets an older merged backend; its missing-session/source and GET-only CORS claims
+do not describe this checkout. The audit's unparenthesized-except syntax concern does not
+apply to the pinned Python 3.14 runtime. The current baseline actually passed 95 tests.
+
+New text uploads now atomically publish SourceChunk nodes and HAS_CHUNK edges together with
+the source version, operation, signed audit and graph revision. The deterministic text profile
+uses at most 4,000 Unicode scalar characters per chunk, prefers paragraph boundaries, explicitly
+segments longer paragraphs, uses zero overlap, and rejects more than 200 chunks with HTTP 422
+before storing artifacts or graph publication. Chunk IDs bind tenant, version and global offset.
+
+Source detail now returns EvidenceRef snippets and accepts chunk_id together with optional
+version_id. Reads enforce tenant and node/edge ACLs, recheck retained raw/representation hashes,
+exact quote offsets and chunk hashes, and report VERIFIED, REJECTED or UNAVAILABLE accordingly.
+Historical source chunks remain tied to their immutable versions; replay does not duplicate them.
+Existing versions created before this change are not backfilled; unchanged reuploads still return
+NO_CHANGE. Source reprocessing remains a future route.
+
+Validation: full opted-in real FalkorDB suite **101 passed, no skips, one existing Starlette
+warning**; Ruff lint and format passed. Added boundary/Unicode/limit tests and real graph checks
+for chunk count, replay, historical selection, missing/wrong-version chunks, oversized rejection,
+tampered text and restricted chunk visibility. One sandboxed targeted run was denied socket
+access; the escalated rerun passed against the local server.
+
+Next unfinished milestone: typed candidate extraction and atomic PROPOSED receipt publication
+from these chunks, then authorized append-only review/history. No automatic semantic extraction,
+review writer, finance/scenarios or action execution is implemented by this change. Shared API
+contract and frontend files are unchanged.
+
+## 2026-10-12 continuation: initial PROPOSED receipt publication
+
+Completed the bounded no-LLM upload-to-proposal slice on top of source chunks. A strict typed
+candidate model and deterministic `text-commitment-lines-v1` profile select complete lines
+starting with I/We + will/can + deliver/provide/complete/ship/build. Quotes must fit within one
+chunk and the 2,000-character receipt text bound; unsupported wording or boundary-crossing
+lines are not extracted. More than 100 unique candidates rejects the upload before artifact
+storage/publication. This is intentionally limited language coverage, not a general extractor.
+
+The producer re-reads retained artifacts, verifies exact Unicode quote offsets and raw/parse
+hashes, and signs initial PROPOSED receipts with the configured trusted Ed25519 key. All
+candidates remain ambiguous with unknown confidence, unresolved identity/deadline/price and
+no confirmation. Source text has no execution or authorization effect. Quote-based identity
+is scoped to tenant, logical source and profile; duplicate occurrences/replays and unchanged
+quotes in revised sources do not duplicate receipts. Changed wording creates a separate
+proposal, preserving prior evidence; conflict resolution and semantic identity remain pending.
+
+The same revision-conditional Cypher publication creates Promise/PromiseVersion, HAS_VERSION,
+PROPOSES, SUPPORTED_BY and receipt HAS_EVENT links. Extracted edges carry exact evidence and
+profile metadata; the source audit event includes the receipt ID/digest manifest. Existing
+promise list/detail and both verification routes read the new receipts. Full receipt history
+verification is still unavailable, and action eligibility remains false.
+
+Verified full suite: `RUN_FALKORDB_INTEGRATION=1 .venv/bin/pytest -q` → **107 passed, no skips,
+one existing Starlette warning**. Ruff lint/format and diff whitespace checks passed. New tests
+exercise Unicode/CRLF offsets, bounded extraction, forged offsets rejected before signing,
+real source→chunk→receipt paths, signature/source verification, audit manifests, idempotency,
+source revisions, restricted/cross-tenant reads, multiple chunks, inert hostile text and a
+forced late-write failure rolling back all source/chunk/receipt/audit/operation changes. The
+multi-chunk test initially had an incorrect hardcoded expected boundary; corrected its oracle
+and reran the entire suite successfully.
+
+Next: authorized append-only review and historical receipt access/verification, then remaining
+finance/scenarios and approval-gated mock actions. No shared API contract or frontend edits.
+This continuation and the preceding chunk changes are local and uncommitted/unpushed.
+
+## 2026-10-13 continuation: reviewer receipt versions and history
+
+Implemented the frozen review route POST /api/promises/{promise_id}/review with reviewer-role checks,
+expected receipt ID/current revision, strict decision/content validation and required idempotency
+key. CONFIRM requires every existing evidence reference and a fresh signature/source-byte check;
+new cited evidence must resolve to a tenant-scoped PUBLIC_DEMO source chunk and pass retained-byte,
+quote-offset and chunk-hash checks. FULFILL requires a confirmed parent plus at least one newly
+cited verified chunk. A disputed promise cannot be confirmed through this route because conflict
+resolution is not implemented. REVISE accepts only the contract's allowlisted content fields,
+retains/rechecks source evidence and clears confirmation. All decisions append a signed successor
+receipt; confirmation metadata binds the content digest and reviewer event.
+
+Each mutation writes the new PromiseVersion, HAS_VERSION/SUPERSEDES/HAS_EVENT links, updates the
+current pointer/revision and old standing, appends the signed audit event, and stores an
+actor-scoped idempotency result under one revision-conditional graph write. Concurrent stale
+writes fail closed; retry with the same key/body returns the original result and a new request ID.
+Historical detail/verify accepts version_id. Verification checks contiguous predecessor IDs,
+canonical hashes/signatures, current/superseded standing, the tenant audit chain and each receipt's
+signed audit manifest/event binding. No independent external checkpoint exists; action eligibility
+remains false.
+
+For this continuation, no tests were added or run because the active developer instruction says
+not to add or run tests unless the user asks for verification. Ruff lint/format and git diff --check
+passed. Real FalkorDB behavior for the newly added review/history Cypher and the complete review
+lifecycle remains unverified and should be the first check next session. Earlier verified
+source/chunk/proposal tests remain as recorded; they do not establish this new route.
+
+Remaining MVP work is substantial: full typed graph query catalogue/ACL, real fixture graph path,
+finance and scenarios, action approval/ledger/mock read-back and reconciliation, frontend contract
+integration, backup/restore/performance, and reproducible full demo gates. This review slice does
+not complete M1–M5. All current changes remain local and uncommitted/unpushed.

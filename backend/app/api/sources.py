@@ -1,5 +1,6 @@
 """Bounded local text upload and source/version read-back."""
 
+import hashlib
 import json
 import re
 from pathlib import PurePath
@@ -11,6 +12,10 @@ from fastapi.responses import JSONResponse
 from app.auth import authenticate, require_role
 from app.config import Settings
 from app.graph.repository import GraphRepository
+from app.ingestion.candidates import CandidateLimitExceeded
+from app.ingestion.chunks import ChunkLimitExceeded
+from app.ingestion.quote_verifier import verify_quote
+from app.models.api import EvidenceRef
 from app.models.common import Id
 from app.models.sources import (
     Operation,
@@ -75,17 +80,20 @@ def router(
             raw.decode("utf-8-sig", errors="strict")
         except UnicodeDecodeError:
             raise HTTPException(422) from None
-        status, result = service.ingest(
-            actor,
-            raw=raw,
-            source_type=source_type,
-            title=filename,
-            source_key=source_key,
-            access_label=access_label,
-            content_type=file.content_type,
-            idempotency_key=idempotency_key,
-            request_id=request.state.request_id,
-        )
+        try:
+            status, result = service.ingest(
+                actor,
+                raw=raw,
+                source_type=source_type,
+                title=filename,
+                source_key=source_key,
+                access_label=access_label,
+                content_type=file.content_type,
+                idempotency_key=idempotency_key,
+                request_id=request.state.request_id,
+            )
+        except ChunkLimitExceeded, CandidateLimitExceeded:
+            raise HTTPException(422) from None
         model = UploadAccepted if status == 202 else UploadNoChange
         return JSONResponse(model.model_validate(result).model_dump(), status_code=status)
 
@@ -97,8 +105,6 @@ def router(
         chunk_id: Id | None = None,
     ):
         actor = authenticate(request, settings)
-        if chunk_id is not None:
-            raise HTTPException(400)
         rows = repository.source_detail(actor.tenant_id, source_id, "admin" in actor.roles)
         if not rows:
             raise HTTPException(404)
@@ -106,6 +112,50 @@ def router(
         selected = next((row for row in rows if row[9] == (version_id or first[3])), None)
         if selected is None:
             raise HTTPException(404)
+        chunks = repository.source_chunks(
+            actor.tenant_id, source_id, selected[9], chunk_id, "admin" in actor.roles
+        )
+        if chunk_id is not None and not chunks:
+            raise HTTPException(404)
+        raw = representation = None
+        artifact_status = "UNAVAILABLE"
+        if chunks and selected[13] == "AVAILABLE":
+            try:
+                raw = service.artifacts.read(actor.tenant_id, selected[11], "raw")
+                representation = service.artifacts.read(
+                    actor.tenant_id, selected[12], "representation"
+                ).decode("utf-8", errors="strict")
+                artifact_status = "VERIFIED"
+            except FileNotFoundError:
+                pass
+            except ValueError, UnicodeDecodeError:
+                artifact_status = "REJECTED"
+        snippets = []
+        for chunk in chunks:
+            evidence = EvidenceRef(
+                evidence_ref_id=chunk[0],
+                source_id=source_id,
+                source_version_id=selected[9],
+                source_hash=selected[11],
+                representation_hash=selected[12],
+                origin_reference=f"source:{source_id}",
+                quote=chunk[1],
+                start_offset=chunk[2],
+                end_offset=chunk[3],
+                start_ms=None,
+                end_ms=None,
+                structured_pointer=None,
+                source_updated_at=selected[14],
+                observed_at=chunk[6],
+                verification=artifact_status,
+                access_label=chunk[5],
+            )
+            if artifact_status == "VERIFIED" and (
+                not verify_quote(raw, representation, evidence)
+                or hashlib.sha256(chunk[1].encode()).hexdigest() != chunk[4]
+            ):
+                evidence = evidence.model_copy(update={"verification": "REJECTED"})
+            snippets.append(evidence)
         summary = SourceSummary(
             id=first[0],
             source_type=first[1],
@@ -127,7 +177,7 @@ def router(
                 representation_hash=selected[12],
                 availability=selected[13],
             ),
-            snippets=[],
+            snippets=snippets,
             versions=[
                 SourceVersionSummary(
                     id=row[9],

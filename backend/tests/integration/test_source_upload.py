@@ -106,6 +106,19 @@ def test_text_upload_retention_versioning_and_idempotency(tmp_path):
             detail = client.get(f"/api/sources/{source_id}")
             assert detail.status_code == 200, detail.text
             assert len(detail.json()["versions"]) == 1
+            snippet = detail.json()["snippets"][0]
+            assert snippet["quote"] == "A promise\nby Friday."
+            assert snippet["verification"] == "VERIFIED"
+            assert snippet["start_offset"] == 0
+            assert snippet["end_offset"] == len(snippet["quote"])
+            chunk_id = snippet["evidence_ref_id"]
+            assert client.get(f"/api/sources/{source_id}", params={"chunk_id": chunk_id}).json()[
+                "snippets"
+            ] == [snippet]
+            assert (
+                client.get(f"/api/sources/{source_id}", params={"chunk_id": "missing"}).status_code
+                == 404
+            )
             operation = client.get(first_body["status_url"])
             assert operation.status_code == 200, operation.text
             assert operation.json()["operation"]["status"] == "SUCCEEDED"
@@ -136,6 +149,25 @@ def test_text_upload_retention_versioning_and_idempotency(tmp_path):
             detail2 = client.get(f"/api/sources/{source_id}")
             assert len(detail2.json()["versions"]) == 2
             assert detail2.json()["source"]["current_version_id"].endswith("-v2")
+            historical = client.get(
+                f"/api/sources/{source_id}",
+                params={"version_id": snippet["source_version_id"], "chunk_id": chunk_id},
+            )
+            assert historical.json()["snippets"] == [snippet]
+            assert (
+                client.get(f"/api/sources/{source_id}", params={"chunk_id": chunk_id}).status_code
+                == 404
+            )
+            assert graph.ro_query("MATCH (c:SourceChunk) RETURN count(c)").result_set == [[2]]
+            assert upload(b"x" * 800001, "chunk-limit-key-123").status_code == 422
+            assert graph.ro_query("MATCH (c:SourceChunk) RETURN count(c)").result_set == [[2]]
+            graph.query("MATCH (c:SourceChunk {id:$id}) SET c.text='tampered'", {"id": chunk_id})
+            assert (
+                client.get(
+                    f"/api/sources/{source_id}", params={"version_id": snippet["source_version_id"]}
+                ).json()["snippets"][0]["verification"]
+                == "REJECTED"
+            )
             assert graph.ro_query("MATCH (a:AuditEvent) RETURN count(a)").result_set == [[2]]
             assert graph.ro_query("MATCH (s:GraphState) RETURN s.revision").result_set == [[2]]
             audit = client.get("/api/audit/verify")
@@ -148,6 +180,19 @@ def test_text_upload_retention_versioning_and_idempotency(tmp_path):
             )
             assert client.get("/api/audit/verify").json()["chain_result"] == "INVALID"
             client.post("/api/session", json={"credential": "viewer-local-credential"})
+            assert (
+                client.get(f"/api/sources/{source_id}").json()["snippets"][0]["verification"]
+                == "VERIFIED"
+            )
+            graph.query("MATCH (c:SourceChunk) SET c.access_label='RESTRICTED'")
+            assert client.get(f"/api/sources/{source_id}").json()["snippets"] == []
+            assert (
+                client.get(
+                    f"/api/sources/{source_id}",
+                    params={"version_id": snippet["source_version_id"], "chunk_id": chunk_id},
+                ).status_code
+                == 404
+            )
             assert (
                 client.post(
                     "/api/sources/upload",

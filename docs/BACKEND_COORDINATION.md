@@ -53,3 +53,30 @@ configured empty graph. The opted-in full suite passed 95 tests against FalkorDB
 exact commands/limits are in IMPLEMENTATION_NOTES.md. Frontend should still use mock mode for
 promise review, scenarios and actions, which are not implemented. The shared API contract is
 unchanged; unsupported upload types and optional meeting context are rejected explicitly.
+
+## Source chunk update — 2026-10-12
+
+New uploads publish bounded SourceChunk/HAS_CHUNK records atomically. Source detail now returns
+verified evidence snippets and supports chunk_id plus historical version_id. Existing source
+versions are not backfilled. Real FalkorDB suite: 101 passed, no skips, one existing warning;
+Ruff passed. Candidate extraction, PROPOSED receipt publication and review remain next.
+
+## Initial receipt publication update — 2026-10-12
+
+Text uploads now extract a bounded set of literal commitment lines and atomically publish
+signed PROPOSED receipts with source chunks, provenance and an audit receipt-digest manifest.
+Existing promise list/detail/verification routes can read uploaded PUBLIC_DEMO proposals.
+All extracted commitments remain ambiguous and unconfirmed; action eligibility remains false.
+The profile's precise limits are documented in backend/README.md. Full real-graph suite:
+107 passed, no skips, one existing warning; Ruff passed. Review/history and general extraction
+remain pending. Work is local and uncommitted/unpushed; shared contract remains unchanged.
+
+## Reviewer and historical receipts update — 2026-10-13
+
+Added the frozen reviewer route with signed successor versions, evidence checks, graph CAS,
+audit append and idempotent replay. Promise detail/verify can select historical versions and
+verification checks the predecessor chain against locally signed audit history. Disputed promise
+confirmation fails closed pending conflict resolution; fulfillment requires a newly cited verified
+source chunk. Ruff and whitespace checks passed. Per active developer instruction, no tests were
+added/run; real-graph review/history behavior remains unverified. Backend is still partial and
+frontend remains unmodified.
