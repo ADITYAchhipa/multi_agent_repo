@@ -811,7 +811,9 @@ export class ApiClient {
     limit?: number;
   }): Promise<{ request_id: string; items: ActionProposalDTO[]; next_cursor?: string | null }> {
     if (this.mode === "DEMO") {
-      let filtered = [...demoActions];
+      let filtered: ActionProposalDTO[] = JSON.parse(
+        JSON.stringify(demoActions)
+      );
       if (params?.status && params.status !== "ALL") {
         filtered = filtered.filter((a) => a.status === params.status);
       }

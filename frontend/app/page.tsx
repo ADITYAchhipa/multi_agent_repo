@@ -50,6 +50,12 @@ export default function OverviewPage() {
     p.risk_flags.some((f) => f.includes("OUT_OF_SCOPE") || f.includes("DEFICIT"))
   ).length;
 
+  const actions = actionsData?.items || [];
+  const pendingActions = actions.filter(
+    (a) => a.status === "NEEDS_APPROVAL" || a.status === "PROPOSED"
+  );
+  const pendingActionsCount = pendingActions.length;
+
   return (
     <div className="space-y-6">
       {/* Page Title & Operational Context */}
@@ -502,25 +508,36 @@ export default function OverviewPage() {
                 Approval Queue Status
               </h3>
               <span className="text-xs font-mono font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                1 PENDING
+                {pendingActionsCount} PENDING
               </span>
             </div>
 
-            <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-slate-900">
-                  action-reserve-ben
-                </span>
-                <StatusBadge status="NEEDS_APPROVAL" size="sm" />
+            {pendingActions.length > 0 ? (
+              (() => {
+                const action = pendingActions[0];
+                return (
+                  <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900">
+                        {action.id}
+                      </span>
+                      <StatusBadge status={action.status} size="sm" />
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Reserve Ben Ortiz optional 5-hour Friday slot (09:00–14:00) on Workload Mock adapter.
+                    </p>
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                      <span>Cost Ceiling: USD 750</span>
+                      <span>Role: {action.required_approval_role}</span>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="p-4 rounded-md border border-slate-200 bg-slate-50 text-center text-xs text-slate-500">
+                No actions currently pending approval.
               </div>
-              <p className="text-[11px] text-slate-600">
-                Reserve Ben Ortiz optional 5-hour Friday slot (09:00–14:00) on Workload Mock adapter.
-              </p>
-              <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
-                <span>Cost Ceiling: USD 750</span>
-                <span>Role: reviewer</span>
-              </div>
-            </div>
+            )}
 
             <Link
               href="/actions"

@@ -80,6 +80,7 @@ export default function PromiseInboxPage() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
+              aria-label="Search promises by deliverable or ID"
               placeholder="Search deliverable, promise ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -91,6 +92,7 @@ export default function PromiseInboxPage() {
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400 shrink-0" />
             <select
+              aria-label="Filter by lifecycle state"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full py-1.5 px-2.5 text-xs rounded-md border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-slate-700"
@@ -110,6 +112,7 @@ export default function PromiseInboxPage() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 shrink-0">Customer:</span>
             <select
+              aria-label="Filter by customer"
               value={customerFilter}
               onChange={(e) => setCustomerFilter(e.target.value)}
               className="w-full py-1.5 px-2.5 text-xs rounded-md border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-slate-700"

@@ -36,6 +36,10 @@ export default function PromiseDetailPage() {
     "receipt" | "evidence" | "tasks_capacity" | "milestones" | "tamper"
   >("receipt");
 
+  // Active actor and permission
+  const currentActor = apiClient.getActor();
+  const isReviewer = currentActor.roles.includes("reviewer");
+
   // Review modal state
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewDecision, setReviewDecision] = useState<
@@ -43,6 +47,18 @@ export default function PromiseDetailPage() {
   >("CONFIRM");
   const [reviewReason, setReviewReason] = useState("");
   const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+
+  // Close review modal on Escape key
+  React.useEffect(() => {
+    if (!reviewModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setReviewModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [reviewModalOpen]);
 
   // Tamper testing sandbox state
   const [tamperedDeliverable, setTamperedDeliverable] = useState(
@@ -216,10 +232,16 @@ export default function PromiseDetailPage() {
       </div>
 
       {/* Tabs Bar */}
-      <div className="flex border-b border-slate-200 text-xs font-medium space-x-1">
+      <div
+        role="tablist"
+        aria-label="Promise Details Tabs"
+        className="flex border-b border-slate-200 text-xs font-medium space-x-1 overflow-x-auto scrollbar-none pb-px"
+      >
         <button
+          role="tab"
+          aria-selected={activeTab === "receipt"}
           onClick={() => setActiveTab("receipt")}
-          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors ${
+          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors shrink-0 ${
             activeTab === "receipt"
               ? "border-sky-600 text-sky-600 bg-white"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -228,8 +250,10 @@ export default function PromiseDetailPage() {
           PromiseSeal Receipt & Cryptography
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "evidence"}
           onClick={() => setActiveTab("evidence")}
-          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors ${
+          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors shrink-0 ${
             activeTab === "evidence"
               ? "border-sky-600 text-sky-600 bg-white"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -238,8 +262,10 @@ export default function PromiseDetailPage() {
           Evidence & Conflicts ({conflicts.length})
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "tasks_capacity"}
           onClick={() => setActiveTab("tasks_capacity")}
-          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors ${
+          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors shrink-0 ${
             activeTab === "tasks_capacity"
               ? "border-sky-600 text-sky-600 bg-white"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -248,8 +274,10 @@ export default function PromiseDetailPage() {
           Jira & Workload Gap (5h)
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "milestones"}
           onClick={() => setActiveTab("milestones")}
-          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors ${
+          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors shrink-0 ${
             activeTab === "milestones"
               ? "border-sky-600 text-sky-600 bg-white"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -258,8 +286,10 @@ export default function PromiseDetailPage() {
           Billing Milestones ($40k At Risk)
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "tamper"}
           onClick={() => setActiveTab("tamper")}
-          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors ${
+          className={`px-4 py-2.5 border-b-2 font-semibold transition-colors shrink-0 ${
             activeTab === "tamper"
               ? "border-rose-600 text-rose-600 bg-white"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -701,10 +731,11 @@ export default function PromiseDetailPage() {
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">
+              <label htmlFor="tampered-deliverable-input" className="text-xs font-bold text-slate-800 block mb-1">
                 Altered Deliverable Text (Tamper Experiment):
               </label>
               <input
+                id="tampered-deliverable-input"
                 type="text"
                 value={tamperedDeliverable}
                 onChange={(e) => setTamperedDeliverable(e.target.value)}
@@ -780,15 +811,21 @@ export default function PromiseDetailPage() {
 
       {/* Review Modal Dialog */}
       {reviewModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-modal-title"
+          className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4"
+        >
           <div className="bg-white rounded-lg border border-slate-300 shadow-xl max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-bold text-base text-slate-900">
+              <h3 id="review-modal-title" className="font-bold text-base text-slate-900">
                 Authoritative Promise Review Decision
               </h3>
               <button
                 onClick={() => setReviewModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+                aria-label="Close review dialog"
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded hover:bg-slate-100 transition-colors"
               >
                 ✕
               </button>
@@ -863,10 +900,11 @@ export default function PromiseDetailPage() {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">
+                <label htmlFor="review-reason-input" className="font-semibold text-slate-700 block mb-1">
                   Reason & Operational Justification:
                 </label>
                 <textarea
+                  id="review-reason-input"
                   rows={3}
                   value={reviewReason}
                   onChange={(e) => setReviewReason(e.target.value)}
@@ -876,7 +914,12 @@ export default function PromiseDetailPage() {
               </div>
 
               <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-600">
-                Decision will be signed by actor <strong>Aria Chen (reviewer)</strong> and committed to the PromiseSeal ledger.
+                Decision will be signed by actor <strong>{currentActor.name} ({currentActor.roles.join(", ")})</strong> and committed to the PromiseSeal ledger.
+                {!isReviewer && (
+                  <span className="block mt-1 text-rose-700 font-semibold">
+                    Warning: Active role lacks &lsquo;reviewer&rsquo; capability. Submission will be rejected by policy (Rule R09). Switch to Reviewer in the top header.
+                  </span>
+                )}
               </div>
 
               {reviewMutation.error && (
@@ -896,20 +939,31 @@ export default function PromiseDetailPage() {
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
               <button
+                type="button"
                 onClick={() => setReviewModalOpen(false)}
                 className="px-3 py-1.5 rounded text-xs font-medium text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() =>
                   reviewMutation.mutate({
                     decision: reviewDecision,
                     reason: reviewReason || "Operational review transition",
                   })
                 }
-                disabled={reviewMutation.isPending}
-                className="px-4 py-1.5 rounded bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm"
+                disabled={reviewMutation.isPending || !isReviewer}
+                className={`px-4 py-1.5 rounded text-xs font-bold shadow-sm transition-colors ${
+                  isReviewer
+                    ? "bg-sky-600 hover:bg-sky-700 text-white"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                }`}
+                title={
+                  !isReviewer
+                    ? "Active role lacks 'reviewer' permission. Switch role in the header to submit."
+                    : ""
+                }
               >
                 {reviewMutation.isPending ? "Submitting..." : "Submit Review"}
               </button>

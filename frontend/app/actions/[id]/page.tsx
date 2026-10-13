@@ -50,10 +50,13 @@ export default function ActionReceiptPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["action-detail", actionId] });
       queryClient.invalidateQueries({ queryKey: ["actions"] });
+      const isMockOrDemo = !isLive || data?.action.mode === "MOCK" || data?.action.target_system === "WORKLOAD_MOCK";
       setExecutionMessage(
-        `Execution SUCCEEDED on target system. Read-back state verified with 0 field mismatches.`
+        isMockOrDemo
+          ? "Simulated execution SUCCEEDED using Workload Mock Adapter and verified against in-memory state. Read-back verified with 0 field mismatches. No external workload or Jira system was changed."
+          : `Execution SUCCEEDED on target system. Read-back state verified with 0 field mismatches.`
       );
-      setTimeout(() => setExecutionMessage(null), 5000);
+      setTimeout(() => setExecutionMessage(null), 6000);
     },
     onError: (err: any) => {
       setExecutionMessage(`Execution Blocked: ${err.message}`);
@@ -201,11 +204,23 @@ export default function ActionReceiptPage() {
             {isSucceeded && (
               <span className="inline-flex items-center px-3 py-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold">
                 <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-600" />
-                Execution Completed & Verified
+                {!isLive || action.mode === "MOCK"
+                  ? "Simulated Execution Verified (Mock Adapter)"
+                  : "Execution Completed & Verified"}
               </span>
             )}
           </div>
         </div>
+
+        {/* Simulation Context Notice for Demo / Mock Mode */}
+        {(!isLive || action.mode === "MOCK") && (
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600 flex items-start gap-2">
+            <Database className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-slate-800">Simulated Execution Environment:</span> This operation is simulated using the in-memory Workload Mock Adapter and verified against platform state. No external workload, scheduling, or Jira systems are modified.
+            </div>
+          </div>
+        )}
 
         {/* Notice on Gate Check */}
         {isNeedsApproval && (

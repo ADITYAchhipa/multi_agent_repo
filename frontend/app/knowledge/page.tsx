@@ -76,7 +76,12 @@ export default function KnowledgeHealthPage() {
         </div>
       </div>
 
-      {isLive && (error || !data) && (
+      {isLoading ? (
+        <div className="py-16 text-center text-slate-500 space-y-2 bg-white rounded-lg border border-slate-200 p-8 shadow-sm">
+          <div className="w-6 h-6 border-2 border-sky-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-medium">Loading knowledge health telemetry...</p>
+        </div>
+      ) : isLive && (error || !data) ? (
         <UnavailableStateCard
           title="Knowledge Firewall Telemetry Unavailable"
           endpoint="GET /api/health/knowledge"
@@ -85,10 +90,12 @@ export default function KnowledgeHealthPage() {
           message="The Knowledge Health and Graph Quality Firewall route has not yet been deployed on the active backend (scheduled for Codex Milestone M1). In DEMO mode, quarantine monitoring for orphaned nodes, ambiguous entities, and stale sources is fully accessible."
           onRetry={() => refetch()}
         />
-      )}
+      ) : null}
 
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {!isLoading && (
+        <>
+          {/* Metric Cards Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-tight">
             Quarantined Records
@@ -256,7 +263,9 @@ export default function KnowledgeHealthPage() {
             </div>
           );
         })}
-      </div>
+        </div>
+        </>
+      )}
     </div>
   );
 }

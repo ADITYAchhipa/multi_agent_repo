@@ -172,8 +172,16 @@ export default function GraphExplorerPage() {
     });
   }, [rawEdges, selectedPathId, activePath]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  React.useEffect(() => {
+    setNodes(initialNodes);
+  }, [initialNodes, setNodes]);
+
+  React.useEffect(() => {
+    setEdges(initialEdges);
+  }, [initialEdges, setEdges]);
 
   const selectedNodeData = rawNodes.find((n) => n.id === selectedEntityId);
   const selectedEdgeData = rawEdges.find((e) => e.id === selectedEdgeId);
@@ -240,8 +248,12 @@ export default function GraphExplorerPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-sky-600 shrink-0" />
-            <span className="font-semibold text-slate-700">Proof Path:</span>
+            <label htmlFor="proof-path-select" className="font-semibold text-slate-700">
+              Proof Path:
+            </label>
             <select
+              id="proof-path-select"
+              aria-label="Filter graph by proof path"
               value={selectedPathId}
               onChange={(e) => setSelectedPathId(e.target.value)}
               className="py-1 px-2.5 rounded border border-slate-300 bg-slate-50 font-mono text-xs focus:outline-none focus:border-sky-500"
@@ -292,6 +304,7 @@ export default function GraphExplorerPage() {
               fitView
               minZoom={0.2}
               maxZoom={1.5}
+              preventScrolling={false}
             >
               <Background color="#cbd5e1" gap={16} size={1} />
               <Controls showInteractive={false} />

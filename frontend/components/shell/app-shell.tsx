@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Inbox,
@@ -37,6 +37,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   >("reviewer");
   const [resetMessage, setResetMessage] = useState<string | null>(null);
 
+  const { data: actionsData } = useQuery({
+    queryKey: ["actions"],
+    queryFn: () => apiClient.getActions(),
+  });
+
+  const pendingActionsCount = (actionsData?.items || []).filter(
+    (a) => a.status === "NEEDS_APPROVAL" || a.status === "PROPOSED"
+  ).length;
+
   useEffect(() => {
     return apiClient.subscribe((nextMode) => {
       setAppMode(nextMode);
@@ -58,9 +67,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const handleReset = () => {
     apiClient.resetDemoData();
+    queryClient.invalidateQueries();
     setResetMessage("Demo scenario state reset to baseline.");
     setTimeout(() => setResetMessage(null), 3000);
-    window.location.reload();
+    if (typeof window !== "undefined" && window.location) {
+      window.location.reload();
+    }
   };
 
   const navItems = [
@@ -86,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       name: "Approval Queue",
       href: "/actions",
       icon: CheckSquare,
-      badge: "1 PENDING",
+      badge: `${pendingActionsCount} PENDING`,
     },
     {
       name: "Graph Explorer",
@@ -109,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="min-vh-100 flex flex-col bg-slate-50 text-slate-900">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       {/* Top Banner: Environment Context, Demo Status, Active Actor & Mode */}
       <header className="bg-slate-900 text-slate-100 border-b border-slate-800 text-xs px-4 py-2 flex flex-wrap items-center justify-between gap-2 z-30">
         <div className="flex flex-wrap items-center gap-2">
@@ -302,38 +314,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Mobile Drawer Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden fixed inset-0 top-9 bg-slate-950/95 z-30 p-4 flex flex-col justify-between">
-            <nav className="space-y-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  item.href === "/"
-                    ? pathname === "/"
-                    : pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium ${
-                      isActive
-                        ? "bg-sky-600 text-white font-bold"
-                        : "text-slate-200 hover:bg-slate-800"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon className="w-5 h-5" />
-                      <span>{item.name}</span>
-                    </div>
-                    {item.badge && (
-                      <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                        {item.badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
+          <div className="md:hidden fixed inset-x-0 top-0 bottom-14 bg-slate-950/95 z-40 p-4 flex flex-col justify-between overflow-y-auto">
+            <div>
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-sky-400" />
+                  <span className="font-bold text-xs text-white uppercase tracking-wider">Navigation Menu</span>
+                </div>
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1 rounded bg-slate-800 text-slate-200 border border-slate-700"
+                  aria-label="Close Navigation Menu"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <nav className="space-y-1">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    item.href === "/"
+                      ? pathname === "/"
+                      : pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium ${
+                        isActive
+                          ? "bg-sky-600 text-white font-bold"
+                          : "text-slate-200 hover:bg-slate-800"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className="w-5 h-5" />
+                        <span>{item.name}</span>
+                      </div>
+                      {item.badge && (
+                        <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {item.badge}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
             <div className="p-4 border-t border-slate-800 text-xs text-slate-400">
               <p>PromiseOps Console — Mobile Layout Mode</p>
             </div>

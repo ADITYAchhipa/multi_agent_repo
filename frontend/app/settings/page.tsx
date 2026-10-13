@@ -49,6 +49,7 @@ export default function SettingsConnectorsPage() {
 
   const handleResetData = () => {
     apiClient.resetDemoData();
+    queryClient.invalidateQueries();
     setResetStatus("In-memory demo scenario reset to baseline.");
     setTimeout(() => setResetStatus(null), 3000);
     refetch();

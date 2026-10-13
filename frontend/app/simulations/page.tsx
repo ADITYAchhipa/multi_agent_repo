@@ -61,7 +61,12 @@ export default function SimulationLabPage() {
         </div>
       </div>
 
-      {isLive && (error || scenarios.length === 0) && (
+      {isLoading ? (
+        <div className="py-16 text-center text-slate-500 space-y-2 bg-white rounded-lg border border-slate-200 p-8 shadow-sm">
+          <div className="w-6 h-6 border-2 border-sky-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-medium">Loading counterfactual simulations...</p>
+        </div>
+      ) : isLive && (error || scenarios.length === 0) ? (
         <UnavailableStateCard
           title="Counterfactual Simulation Engine Unavailable"
           endpoint="POST /api/simulations"
@@ -70,26 +75,37 @@ export default function SimulationLabPage() {
           message="The counterfactual planner and simulation routes are pending backend deployment (scheduled for Codex Milestone M3). In DEMO mode, Plan A (As Requested), Plan B (Renegotiate), and Plan C (Extra Capacity) are fully interactive with independent auditor challenges."
           onRetry={() => refetch()}
         />
-      )}
+      ) : null}
 
       {/* Scenario Comparison Cards (3 Columns) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {scenarios.map((scenario) => {
-          const isSelected = scenario.id === selectedScenarioId;
-          const isAsRequested = scenario.type === "AS_REQUESTED";
-          const isRenegotiate = scenario.type === "RENEGOTIATE_DATE_OR_SCOPE";
-          const isExtraCapacity = scenario.type === "CHANGE_ORDER_OR_EXTRA_CAPACITY";
+      {!isLoading && scenarios.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {scenarios.map((scenario) => {
+            const isSelected = scenario.id === selectedScenarioId;
+            const isAsRequested = scenario.type === "AS_REQUESTED";
+            const isRenegotiate = scenario.type === "RENEGOTIATE_DATE_OR_SCOPE";
+            const isExtraCapacity = scenario.type === "CHANGE_ORDER_OR_EXTRA_CAPACITY";
 
-          return (
-            <div
-              key={scenario.id}
-              onClick={() => setSelectedScenarioId(scenario.id)}
-              className={`rounded-lg border p-5 cursor-pointer transition-all space-y-4 ${
-                isSelected
-                  ? "bg-white border-sky-600 shadow-md ring-1 ring-sky-600"
-                  : "bg-white/80 border-slate-200 hover:border-slate-300 shadow-sm"
-              }`}
-            >
+            return (
+              <div
+                key={scenario.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                aria-label={`Select scenario ${scenario.id}`}
+                onClick={() => setSelectedScenarioId(scenario.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedScenarioId(scenario.id);
+                  }
+                }}
+                className={`rounded-lg border p-5 cursor-pointer transition-all space-y-4 text-left ${
+                  isSelected
+                    ? "bg-white border-sky-600 shadow-md ring-1 ring-sky-600"
+                    : "bg-white/80 border-slate-200 hover:border-slate-300 shadow-sm"
+                }`}
+              >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 block">
@@ -158,6 +174,7 @@ export default function SimulationLabPage() {
           );
         })}
       </div>
+      )}
 
       {/* Selected Scenario Deep-Dive Inspector */}
       {selectedScenario && (

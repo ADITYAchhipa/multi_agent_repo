@@ -151,8 +151,18 @@ export default function ApprovalQueuePage() {
               return (
                 <div
                   key={act.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  aria-label={`Select action ${act.id}`}
                   onClick={() => setSelectedActionId(act.id)}
-                  className={`p-4 rounded-lg border cursor-pointer transition-all space-y-2 ${
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedActionId(act.id);
+                    }
+                  }}
+                  className={`p-4 rounded-lg border cursor-pointer transition-all space-y-2 text-left ${
                     isSelected
                       ? "bg-white border-sky-600 shadow-md ring-1 ring-sky-600"
                       : "bg-white border-slate-200 hover:border-slate-300"
@@ -278,10 +288,11 @@ export default function ApprovalQueuePage() {
                 {selectedAction.status === "NEEDS_APPROVAL" && (
                   <>
                     <div>
-                      <label className="text-xs font-bold text-slate-800 block mb-1">
+                      <label htmlFor="approval-reason-input" className="text-xs font-bold text-slate-800 block mb-1">
                         Approval Reason & Operational Authorization:
                       </label>
                       <input
+                        id="approval-reason-input"
                         type="text"
                         value={approvalReason}
                         onChange={(e) => setApprovalReason(e.target.value)}
