@@ -22,7 +22,13 @@ import {
 } from "lucide-react";
 
 export default function OverviewPage() {
-  const { data: promisesData, isLoading: promisesLoading } = useQuery({
+  const isLive = apiClient.getMode() === "LIVE";
+  const {
+    data: promisesData,
+    isLoading: promisesLoading,
+    error: promisesError,
+    refetch: refetchPromises,
+  } = useQuery({
     queryKey: ["promises"],
     queryFn: () => apiClient.getPromises(),
   });
@@ -225,7 +231,11 @@ export default function OverviewPage() {
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-slate-900">
-              {knowledgeData?.counts.open_findings || 4}
+              {knowledgeData
+                ? knowledgeData.counts.open_findings
+                : isLive
+                ? "N/A"
+                : 4}
             </span>
             <span className="text-[10px] font-mono font-semibold text-rose-700 bg-rose-50 px-1 py-0.5 rounded border border-rose-200">
               2 QUARANTINED
@@ -277,6 +287,29 @@ export default function OverviewPage() {
                     <tr>
                       <td colSpan={5} className="py-6 text-center text-slate-500">
                         Loading verified promises...
+                      </td>
+                    </tr>
+                  ) : promisesError ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-500 space-y-1">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 mx-auto mb-1" />
+                        <span className="block font-medium text-slate-800 text-xs">
+                          {promisesError instanceof Error
+                            ? promisesError.message
+                            : "Failed to load promises from backend"}
+                        </span>
+                        <button
+                          onClick={() => refetchPromises()}
+                          className="mt-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium"
+                        >
+                          Retry Query
+                        </button>
+                      </td>
+                    </tr>
+                  ) : promises.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-500">
+                        No verified promises found.
                       </td>
                     </tr>
                   ) : (

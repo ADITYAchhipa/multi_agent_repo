@@ -18,23 +18,25 @@ import {
   Filter,
 } from "lucide-react";
 import { KnowledgeFinding } from "@/types/api";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 
 export default function KnowledgeHealthPage() {
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
+  const isLive = apiClient.getMode() === "LIVE";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["knowledge"],
     queryFn: () => apiClient.getKnowledgeHealth(),
   });
 
   const findings = data?.findings || [];
   const counts = data?.counts || {
-    nodes: 54,
-    edges: 88,
-    stale_sources: 1,
-    open_conflicts: 1,
-    unresolved_promises: 1,
-    open_findings: 4,
+    nodes: isLive ? 0 : 54,
+    edges: isLive ? 0 : 88,
+    stale_sources: isLive ? 0 : 1,
+    open_conflicts: isLive ? 0 : 1,
+    unresolved_promises: isLive ? 0 : 1,
+    open_findings: isLive ? 0 : 4,
   };
 
   const filteredFindings =
@@ -66,13 +68,24 @@ export default function KnowledgeHealthPage() {
         </div>
 
         <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
-          <span>Graph Head: Rev #12</span>
+          <span>Graph Head: {isLive && !data ? "N/A" : `Rev #${data?.graph_revision || 12}`}</span>
           <span>&bull;</span>
           <span>Nodes: {counts.nodes}</span>
           <span>&bull;</span>
           <span>Edges: {counts.edges}</span>
         </div>
       </div>
+
+      {isLive && (error || !data) && (
+        <UnavailableStateCard
+          title="Knowledge Firewall Telemetry Unavailable"
+          endpoint="GET /api/health/knowledge"
+          statusCode={404}
+          errorCode="NOT_FOUND"
+          message="The Knowledge Health and Graph Quality Firewall route has not yet been deployed on the active backend (scheduled for Codex Milestone M1). In DEMO mode, quarantine monitoring for orphaned nodes, ambiguous entities, and stale sources is fully accessible."
+          onRetry={() => refetch()}
+        />
+      )}
 
       {/* Metric Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

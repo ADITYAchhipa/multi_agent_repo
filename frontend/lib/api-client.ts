@@ -1,6 +1,7 @@
 /**
  * PromiseOps + PromiseSeal Typed API Client
- * Centralizes base URL, correlation IDs, error normalization, and DEMO/LIVE mode.
+ * Centralizes base URL, correlation IDs, error normalization, timeouts, and DEMO/LIVE mode.
+ * Conforms strictly to docs/API_CONTRACTS.md and docs/PROMISESEAL_PROTOCOL.md.
  */
 
 import {
@@ -13,12 +14,18 @@ import {
   ActionProposalDTO,
   KnowledgeHealthResponse,
   ConnectorSummary,
-  GraphNode,
-  GraphEdge,
-  GraphPath,
   ApiErrorEnvelope,
   ReceiptEnvelope,
   SessionInfo,
+  ActionApprovalRequest,
+  ActionRejectRequest,
+  ActionExecuteRequest,
+  ActionRequestApprovalRequest,
+  ActionReconcileRequest,
+  SimulationCreateRequest,
+  ChatRequest,
+  ChatResponse,
+  GraphResponse,
 } from "@/types/api";
 import {
   SEED_PROMISES,
@@ -51,6 +58,38 @@ export class ApiError extends Error {
     this.status = status;
     this.details = details;
   }
+
+  get isConflict(): boolean {
+    return this.status === 409;
+  }
+
+  get isStaleApproval(): boolean {
+    return this.code === "STALE_APPROVAL" || this.code === "IDEMPOTENCY_CONFLICT";
+  }
+
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
+
+  get isEndpointUnimplemented(): boolean {
+    return this.status === 404;
+  }
+
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+
+  get isUnavailable(): boolean {
+    return this.status === 503;
+  }
+
+  get isTimeout(): boolean {
+    return this.status === 504;
+  }
 }
 
 // In-memory demo state stores to simulate stateful mutations during user interaction
@@ -60,6 +99,8 @@ let demoScenarios = [...SEED_SCENARIOS];
 let demoActions = [...SEED_ACTIONS];
 let demoKnowledge = { ...SEED_KNOWLEDGE };
 
+export type ModeChangeListener = (mode: "DEMO" | "LIVE") => void;
+
 export class ApiClient {
   private baseUrl: string;
   private mode: "DEMO" | "LIVE";
@@ -68,6 +109,7 @@ export class ApiClient {
     name: string;
     roles: Array<"viewer" | "reviewer" | "executor" | "admin">;
   };
+  private listeners: Set<ModeChangeListener> = new Set();
 
   constructor() {
     this.baseUrl = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -87,6 +129,18 @@ export class ApiClient {
 
   public setMode(mode: "DEMO" | "LIVE") {
     this.mode = mode;
+    this.listeners.forEach((listener) => {
+      try {
+        listener(mode);
+      } catch {
+        // Safe dispatch
+      }
+    });
+  }
+
+  public subscribe(listener: ModeChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   public getActor() {
@@ -150,7 +204,10 @@ export class ApiClient {
       options.method &&
       ["POST", "PUT", "PATCH", "DELETE"].includes(options.method.toUpperCase())
     ) {
-      if (!headers.has("Idempotency-Key")) {
+      // Exclude session bootstrap from requiring Idempotency-Key per API_CONTRACTS.md §1
+      const isSessionBootstrap =
+        endpoint === "/session" && options.method.toUpperCase() === "POST";
+      if (!isSessionBootstrap && !headers.has("Idempotency-Key")) {
         headers.set("Idempotency-Key", this.generateIdempotencyKey());
       }
       if (!headers.has("Content-Type")) {
@@ -158,17 +215,21 @@ export class ApiClient {
       }
     }
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+    if (options.signal) {
+      options.signal.addEventListener("abort", () => controller.abort());
+    }
+
+    try {
+      const method = (options.method || "GET").toUpperCase();
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         ...options,
+        method,
         headers,
         signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
 
       const data = await response.json().catch(() => null);
 
@@ -183,8 +244,20 @@ export class ApiClient {
             errorData.error.details
           );
         }
+        const fallbackCode =
+          response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 401
+            ? "UNAUTHORIZED"
+            : response.status === 403
+            ? "FORBIDDEN"
+            : response.status === 409
+            ? "CONFLICT"
+            : response.status === 503
+            ? "SERVICE_UNAVAILABLE"
+            : "HTTP_ERROR";
         throw new ApiError(
-          "HTTP_ERROR",
+          fallbackCode,
           `Server returned status ${response.status}`,
           requestId,
           response.status
@@ -196,9 +269,19 @@ export class ApiClient {
       if (err instanceof ApiError) {
         throw err;
       }
+      if (err instanceof Error && (err.name === "AbortError" || controller.signal.aborted)) {
+        throw new ApiError(
+          "TIMEOUT_ERROR",
+          "Request timed out after 10000ms",
+          requestId,
+          504
+        );
+      }
       const message =
         err instanceof Error ? err.message : "An unexpected network error occurred";
       throw new ApiError("NETWORK_ERROR", message, requestId, 503);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -208,13 +291,41 @@ export class ApiClient {
     if (this.mode === "DEMO") {
       return {
         request_id: "req-session-demo",
-        actor: this.currentActor,
+        actor: {
+          id: this.currentActor.id,
+          name: this.currentActor.name,
+          roles: [...this.currentActor.roles],
+        },
         tenant_id: "tenant-demo",
         mode: "DEMO",
         expires_at: new Date(Date.now() + 3600000).toISOString(),
       };
     }
     return this.request<SessionInfo>("/session");
+  }
+
+  async bootstrapSession(credential: string): Promise<SessionInfo> {
+    if (this.mode === "DEMO") {
+      return this.getSession();
+    }
+    return this.request<SessionInfo>("/session", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+  }
+
+  async logout(): Promise<{ request_id: string; logged_out: boolean }> {
+    if (this.mode === "DEMO") {
+      this.setActor("viewer");
+      return {
+        request_id: "req-logout-demo",
+        logged_out: true,
+      };
+    }
+    return this.request<{ request_id: string; logged_out: boolean }>("/session/logout", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
   }
 
   async getHealth(): Promise<{
@@ -227,7 +338,7 @@ export class ApiClient {
       return {
         request_id: "req-health-demo",
         status: "OK",
-        services: { api: "healthy", graph: "falkordb_mock_active" },
+        services: { api: "OK", graph: "OK" },
         checked_at: new Date().toISOString(),
       };
     }
@@ -244,11 +355,13 @@ export class ApiClient {
   async getConnectors(): Promise<{
     request_id: string;
     items: ConnectorSummary[];
+    next_cursor?: string | null;
   }> {
     if (this.mode === "DEMO") {
       return {
         request_id: "req-connectors-demo",
         items: SEED_CONNECTORS,
+        next_cursor: null,
       };
     }
     return this.request("/connectors");
@@ -260,7 +373,11 @@ export class ApiClient {
     status?: string;
     customer_id?: string;
     risk?: string;
-  }): Promise<{ request_id: string; items: PromiseSummary[] }> {
+    deadline_from?: string;
+    deadline_to?: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<{ request_id: string; items: PromiseSummary[]; next_cursor?: string | null }> {
     if (this.mode === "DEMO") {
       let filtered = [...demoPromises];
       if (params?.status && params.status !== "ALL") {
@@ -272,6 +389,7 @@ export class ApiClient {
       return {
         request_id: "req-promises-demo",
         items: filtered,
+        next_cursor: null,
       };
     }
 
@@ -285,6 +403,18 @@ export class ApiClient {
     if (params?.risk) {
       searchParams.set("risk", params.risk);
     }
+    if (params?.deadline_from) {
+      searchParams.set("deadline_from", params.deadline_from);
+    }
+    if (params?.deadline_to) {
+      searchParams.set("deadline_to", params.deadline_to);
+    }
+    if (params?.cursor) {
+      searchParams.set("cursor", params.cursor);
+    }
+    if (params?.limit) {
+      searchParams.set("limit", String(params.limit));
+    }
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return this.request(`/promises${query}`);
   }
@@ -293,6 +423,7 @@ export class ApiClient {
     promiseId: string,
     versionId?: string
   ): Promise<PromiseDetailResponse> {
+    const encodedId = encodeURIComponent(promiseId);
     if (this.mode === "DEMO") {
       if (promiseId === "promise-loyalty") {
         return JSON.parse(JSON.stringify(demoPromiseDetail));
@@ -306,7 +437,6 @@ export class ApiClient {
           404
         );
       }
-      // Return synthetic detail for other items
       return {
         request_id: "req-detail-demo",
         promise: found,
@@ -340,8 +470,8 @@ export class ApiClient {
       };
     }
 
-    const query = versionId ? `?version_id=${versionId}` : "";
-    return this.request<PromiseDetailResponse>(`/promises/${promiseId}${query}`);
+    const query = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
+    return this.request<PromiseDetailResponse>(`/promises/${encodedId}${query}`);
   }
 
   async verifyPromiseReceipt(
@@ -352,6 +482,7 @@ export class ApiClient {
     receipt_id: string;
     verification: Verification;
   }> {
+    const encodedId = encodeURIComponent(promiseId);
     if (this.mode === "DEMO") {
       return {
         request_id: "req-verify-demo",
@@ -398,8 +529,8 @@ export class ApiClient {
       };
     }
 
-    const query = versionId ? `?version_id=${versionId}` : "";
-    return this.request(`/promises/${promiseId}/verify${query}`);
+    const query = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
+    return this.request(`/promises/${encodedId}/verify${query}`);
   }
 
   // Non-persisting verification test for tampered copies
@@ -408,7 +539,6 @@ export class ApiClient {
     verification: Verification;
   }> {
     if (this.mode === "DEMO") {
-      // Simulate real verification check: if deliverable or text changed, digest mismatch
       const originalExcerpt =
         "We can deliver the loyalty integration by Friday at no extra charge.";
       const isTampered =
@@ -486,6 +616,7 @@ export class ApiClient {
     promiseId: string,
     payload: ReviewRequest
   ): Promise<ReviewResponse> {
+    const encodedId = encodeURIComponent(promiseId);
     if (!this.currentActor.roles.includes("reviewer")) {
       throw new ApiError(
         "ROLE_FORBIDDEN",
@@ -551,13 +682,67 @@ export class ApiClient {
       };
     }
 
-    return this.request<ReviewResponse>(`/promises/${promiseId}/review`, {
+    return this.request<ReviewResponse>(`/promises/${encodedId}/review`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async revokeReceipt(
+    promiseId: string,
+    receiptId: string,
+    payload: { expected_revision: number; reason: string }
+  ): Promise<{
+    request_id: string;
+    receipt_id: string;
+    standing: "REVOKED";
+    audit_event_id: string;
+  }> {
+    const encodedPromiseId = encodeURIComponent(promiseId);
+    const encodedReceiptId = encodeURIComponent(receiptId);
+    if (!this.currentActor.roles.includes("admin")) {
+      throw new ApiError(
+        "ROLE_FORBIDDEN",
+        `Actor '${this.currentActor.name}' does not hold 'admin' capability required to revoke receipts.`,
+        this.generateRequestId(),
+        403
+      );
+    }
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-revoke-demo",
+        receipt_id: receiptId,
+        standing: "REVOKED",
+        audit_event_id: `audit-evt-${Date.now()}`,
+      };
+    }
+    return this.request(`/promises/${encodedPromiseId}/receipts/${encodedReceiptId}/revoke`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
   }
 
   // --- Simulations ---
+
+  async createSimulations(
+    payload: SimulationCreateRequest
+  ): Promise<{
+    request_id: string;
+    scenario_ids: string[];
+    results: ScenarioResult[];
+  }> {
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-sim-create-demo",
+        scenario_ids: demoScenarios.map((s) => s.id),
+        results: demoScenarios,
+      };
+    }
+    return this.request("/simulations", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
 
   async getSimulations(): Promise<{
     request_id: string;
@@ -569,13 +754,37 @@ export class ApiClient {
         results: demoScenarios,
       };
     }
-    return this.request("/simulations");
+    // In LIVE mode, contract specifies POST /api/simulations.
+    return this.createSimulations({
+      promise_id: "promise-loyalty",
+      base_graph_revision: 12,
+      question: "Compare Friday delivery options with supplied capacity",
+      scenario_types: [
+        "AS_REQUESTED",
+        "RENEGOTIATE_DATE_OR_SCOPE",
+        "CHANGE_ORDER_OR_EXTRA_CAPACITY",
+      ],
+      assumptions: [
+        {
+          id: "assumption-ben-option",
+          description: "Use documented optional Ben capacity if approved.",
+          value: "5",
+          unit: "hours",
+          evidence_ref_ids: ["evidence-capacity-option"],
+          kind: "USER_ASSUMPTION",
+        },
+      ],
+    }).then((res) => ({
+      request_id: res.request_id,
+      results: res.results,
+    }));
   }
 
   async getSimulation(scenarioId: string): Promise<{
     request_id: string;
     scenario: ScenarioResult;
   }> {
+    const encodedId = encodeURIComponent(scenarioId);
     if (this.mode === "DEMO") {
       const found = demoScenarios.find((s) => s.id === scenarioId);
       if (!found) {
@@ -591,14 +800,16 @@ export class ApiClient {
         scenario: found,
       };
     }
-    return this.request(`/simulations/${scenarioId}`);
+    return this.request(`/simulations/${encodedId}`);
   }
 
   // --- Actions & Approvals ---
 
   async getActions(params?: {
     status?: string;
-  }): Promise<{ request_id: string; items: ActionProposalDTO[] }> {
+    cursor?: string;
+    limit?: number;
+  }): Promise<{ request_id: string; items: ActionProposalDTO[]; next_cursor?: string | null }> {
     if (this.mode === "DEMO") {
       let filtered = [...demoActions];
       if (params?.status && params.status !== "ALL") {
@@ -607,12 +818,20 @@ export class ApiClient {
       return {
         request_id: "req-actions-demo",
         items: filtered,
+        next_cursor: null,
       };
     }
-    const query =
-      params?.status && params.status !== "ALL"
-        ? `?status=${params.status}`
-        : "";
+    const searchParams = new URLSearchParams();
+    if (params?.status && params.status !== "ALL") {
+      searchParams.set("status", params.status);
+    }
+    if (params?.cursor) {
+      searchParams.set("cursor", params.cursor);
+    }
+    if (params?.limit) {
+      searchParams.set("limit", String(params.limit));
+    }
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return this.request(`/actions${query}`);
   }
 
@@ -620,6 +839,7 @@ export class ApiClient {
     request_id: string;
     action: ActionProposalDTO;
   }> {
+    const encodedId = encodeURIComponent(actionId);
     if (this.mode === "DEMO") {
       const found = demoActions.find((a) => a.id === actionId);
       if (!found) {
@@ -635,17 +855,49 @@ export class ApiClient {
         action: found,
       };
     }
-    return this.request(`/actions/${actionId}`);
+    return this.request(`/actions/${encodedId}`);
+  }
+
+  async requestApproval(
+    actionId: string,
+    payload: ActionRequestApprovalRequest
+  ): Promise<{
+    request_id: string;
+    action: ActionProposalDTO;
+    approval?: ActionProposalDTO["approval"];
+  }> {
+    const encodedId = encodeURIComponent(actionId);
+    if (this.mode === "DEMO") {
+      const action = demoActions.find((a) => a.id === actionId);
+      if (!action) {
+        throw new ApiError(
+          "ACTION_NOT_FOUND",
+          `Action ${actionId} not found`,
+          this.generateRequestId(),
+          404
+        );
+      }
+      action.status = "NEEDS_APPROVAL";
+      return {
+        request_id: "req-req-appr-demo",
+        action,
+      };
+    }
+    return this.request(`/actions/${encodedId}/request-approval`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   }
 
   async approveAction(
     actionId: string,
-    reason: string
+    payload: ActionApprovalRequest
   ): Promise<{
     request_id: string;
     action: ActionProposalDTO;
     audit_event_id: string;
   }> {
+    const encodedId = encodeURIComponent(actionId);
     if (!this.currentActor.roles.includes("reviewer")) {
       throw new ApiError(
         "ROLE_FORBIDDEN",
@@ -671,7 +923,7 @@ export class ApiClient {
         approved_by: this.currentActor.id,
         approved_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-        reason: reason || "Approved within delivery policy capacity ceiling ($750)",
+        reason: payload.reason || "Approved within delivery policy capacity ceiling ($750)",
         approval_id: `appr-${Date.now()}`,
       };
 
@@ -682,20 +934,25 @@ export class ApiClient {
       };
     }
 
-    return this.request(`/actions/${actionId}/approve`, {
+    return this.request(`/actions/${encodedId}/approve`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({
+        expected_revision: payload.expected_revision,
+        proposal_hash: payload.proposal_hash,
+        reason: payload.reason,
+      }),
     });
   }
 
   async rejectAction(
     actionId: string,
-    reason: string
+    payload: ActionRejectRequest
   ): Promise<{
     request_id: string;
     action: ActionProposalDTO;
     audit_event_id: string;
   }> {
+    const encodedId = encodeURIComponent(actionId);
     if (!this.currentActor.roles.includes("reviewer")) {
       throw new ApiError(
         "ROLE_FORBIDDEN",
@@ -723,18 +980,25 @@ export class ApiClient {
       };
     }
 
-    return this.request(`/actions/${actionId}/reject`, {
+    return this.request(`/actions/${encodedId}/reject`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({
+        expected_revision: payload.expected_revision,
+        reason: payload.reason,
+      }),
     });
   }
 
-  async executeAction(actionId: string): Promise<{
+  async executeAction(
+    actionId: string,
+    payload: ActionExecuteRequest
+  ): Promise<{
     request_id: string;
     action_id: string;
     status: "EXECUTING" | "SUCCEEDED";
     status_url: string;
   }> {
+    const encodedId = encodeURIComponent(actionId);
     if (!this.currentActor.roles.includes("executor")) {
       throw new ApiError(
         "ROLE_FORBIDDEN",
@@ -805,25 +1069,55 @@ export class ApiClient {
       };
     }
 
-    return this.request(`/actions/${actionId}/execute`, {
+    return this.request(`/actions/${encodedId}/execute`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        expected_revision: payload.expected_revision,
+        proposal_hash: payload.proposal_hash,
+      }),
+    });
+  }
+
+  async reconcileAction(
+    actionId: string,
+    payload: ActionReconcileRequest
+  ): Promise<{
+    request_id: string;
+    action_id: string;
+    status: string;
+  }> {
+    const encodedId = encodeURIComponent(actionId);
+    if (!this.currentActor.roles.includes("executor")) {
+      throw new ApiError(
+        "ROLE_FORBIDDEN",
+        `Reconcile denied: Actor '${this.currentActor.name}' lacks 'executor' role.`,
+        this.generateRequestId(),
+        403
+      );
+    }
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-reconcile-demo",
+        action_id: actionId,
+        status: "SUCCEEDED",
+      };
+    }
+    return this.request(`/actions/${encodedId}/reconcile`, {
+      method: "POST",
+      body: JSON.stringify({
+        expected_revision: payload.expected_revision,
+        reason: payload.reason,
+      }),
     });
   }
 
   // --- Graph ---
 
   async getGraph(
-    entityId?: string,
-    depth = 1
-  ): Promise<{
-    request_id: string;
-    graph_revision: number;
-    nodes: GraphNode[];
-    edges: GraphEdge[];
-    paths: GraphPath[];
-    truncated: boolean;
-  }> {
+    entityId = "promise-loyalty",
+    depth = 1,
+    options?: { maxNodes?: number; types?: string[] }
+  ): Promise<GraphResponse> {
     if (this.mode === "DEMO") {
       return {
         request_id: "req-graph-demo",
@@ -832,10 +1126,64 @@ export class ApiClient {
         edges: SEED_GRAPH_EDGES,
         paths: demoPromiseDetail.graph_paths,
         truncated: false,
+        expansion_hints: [],
       };
     }
-    const query = entityId ? `/${entityId}?depth=${depth}` : `?depth=${depth}`;
-    return this.request(`/graph${query}`);
+    const resolvedId = entityId || "promise-loyalty";
+    const searchParams = new URLSearchParams();
+    searchParams.set("depth", String(depth));
+    if (options?.maxNodes) {
+      searchParams.set("max_nodes", String(options.maxNodes));
+    }
+    if (options?.types && options.types.length > 0) {
+      searchParams.set("types", options.types.join(","));
+    }
+    return this.request<GraphResponse>(
+      `/graph/${encodeURIComponent(resolvedId)}?${searchParams.toString()}`
+    );
+  }
+
+  // --- Chat ---
+
+  async sendChatMessage(payload: ChatRequest): Promise<ChatResponse> {
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-chat-demo",
+        answer:
+          "Based on the FalkorDB graph, Acme loyalty integration is excluded under Contract Clause C2. A 5-hour capacity deficit exists for Friday delivery.",
+        confirmed_claims: [
+          {
+            claim_id: "claim-scope",
+            text: "Clause C2 excludes loyalty integration from signed SOW.",
+            evidence_ref_ids: ["ev-clause-c2"],
+            graph_path_ids: ["path-scope-exclusion"],
+          },
+        ],
+        hypotheses: [],
+        promise_ids: ["promise-loyalty"],
+        graph_paths: demoPromiseDetail.graph_paths,
+        sources: demoPromiseDetail.evidence,
+        conflicts: [],
+        freshness: {
+          level: "FRESH",
+          as_of: "2026-10-12T09:00:00.000Z",
+          evaluated_at: new Date().toISOString(),
+          threshold_seconds: 3600,
+          source_version_ids: ["src-ver-meeting-1"],
+        },
+        evidence_quality: "HIGH",
+        caveats: ["Ben Ortiz reservation requires reviewer approval."],
+        calculations: demoPromiseDetail.calculations,
+        scenario_ids: demoScenarios.map((s) => s.id),
+        trace: { steps: [] },
+        analysis_mode: "DETERMINISTIC_ONLY",
+        graph_revision: 12,
+      };
+    }
+    return this.request<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   }
 }
 

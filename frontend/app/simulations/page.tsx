@@ -20,12 +20,14 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { ScenarioResult } from "@/types/api";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 
 export default function SimulationLabPage() {
   const [selectedScenarioId, setSelectedScenarioId] =
     useState<string>("scen-extra-capacity");
+  const isLive = apiClient.getMode() === "LIVE";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["simulations"],
     queryFn: () => apiClient.getSimulations(),
   });
@@ -58,6 +60,17 @@ export default function SimulationLabPage() {
           </span>
         </div>
       </div>
+
+      {isLive && (error || scenarios.length === 0) && (
+        <UnavailableStateCard
+          title="Counterfactual Simulation Engine Unavailable"
+          endpoint="POST /api/simulations"
+          statusCode={404}
+          errorCode="NOT_FOUND"
+          message="The counterfactual planner and simulation routes are pending backend deployment (scheduled for Codex Milestone M3). In DEMO mode, Plan A (As Requested), Plan B (Renegotiate), and Plan C (Extra Capacity) are fully interactive with independent auditor challenges."
+          onRetry={() => refetch()}
+        />
+      )}
 
       {/* Scenario Comparison Cards (3 Columns) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

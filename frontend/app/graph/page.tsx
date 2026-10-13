@@ -27,6 +27,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { GraphNode, GraphEdge, GraphPath } from "@/types/api";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 
 // Custom node rendering logic
 const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -48,10 +49,11 @@ export default function GraphExplorerPage() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"canvas" | "list">("canvas");
+  const isLive = apiClient.getMode() === "LIVE";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["graph"],
-    queryFn: () => apiClient.getGraph(),
+    queryFn: () => apiClient.getGraph("promise-loyalty", 1),
   });
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data?.nodes]);
@@ -221,6 +223,17 @@ export default function GraphExplorerPage() {
           </div>
         </div>
       </div>
+
+      {isLive && (error || rawNodes.length === 0) && (
+        <UnavailableStateCard
+          title="Graph Traversal Service Unavailable"
+          endpoint="GET /api/graph/promise-loyalty?depth=1"
+          statusCode={404}
+          errorCode="NOT_FOUND"
+          message="The graph traversal and topology route is pending implementation on the active backend (scheduled for Codex Milestone M1/M2). In DEMO mode, the full 10-node, 13-edge FalkorDB graph is interactive with React Flow."
+          onRetry={() => refetch()}
+        />
+      )}
 
       {/* Control Bar: Path Highlighting & Entity Filters */}
       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 text-xs">

@@ -18,6 +18,7 @@ import {
   Database,
   UserCheck,
 } from "lucide-react";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 
 export default function ApprovalQueuePage() {
   const queryClient = useQueryClient();
@@ -29,8 +30,9 @@ export default function ApprovalQueuePage() {
   const currentActor = apiClient.getActor();
   const isReviewer = currentActor.roles.includes("reviewer");
   const isExecutor = currentActor.roles.includes("executor");
+  const isLive = apiClient.getMode() === "LIVE";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["actions"],
     queryFn: () => apiClient.getActions(),
   });
@@ -40,11 +42,15 @@ export default function ApprovalQueuePage() {
     actions.find((a) => a.id === selectedActionId) || actions[0];
 
   const approveMutation = useMutation({
-    mutationFn: (actionId: string) =>
-      apiClient.approveAction(
-        actionId,
-        approvalReason || "Approved within delivery policy ceiling ($750)"
-      ),
+    mutationFn: (actionId: string) => {
+      if (!selectedAction) throw new Error("No action selected");
+      return apiClient.approveAction(actionId, {
+        expected_revision: selectedAction.revision,
+        proposal_hash: selectedAction.proposal_hash,
+        reason:
+          approvalReason || "Approved within delivery policy ceiling ($750)",
+      });
+    },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["actions"] });
       setFeedbackMessage(
@@ -58,12 +64,20 @@ export default function ApprovalQueuePage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (actionId: string) =>
-      apiClient.rejectAction(actionId, "Rejected by operational reviewer"),
+    mutationFn: (actionId: string) => {
+      if (!selectedAction) throw new Error("No action selected");
+      return apiClient.rejectAction(actionId, {
+        expected_revision: selectedAction.revision,
+        reason: "Rejected by operational reviewer",
+      });
+    },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["actions"] });
       setFeedbackMessage(`Action '${res.action.id}' CANCELLED.`);
       setTimeout(() => setFeedbackMessage(null), 5000);
+    },
+    onError: (err: any) => {
+      setFeedbackMessage(`Rejection failed: ${err.message}`);
     },
   });
 
@@ -107,6 +121,17 @@ export default function ApprovalQueuePage() {
           Approver actor must hold the <strong>reviewer</strong> role. An executor cannot self-approve an action proposal. Reviewer approval does not execute the action; a separate executor claim is required to dispatch writes.
         </div>
       </div>
+
+      {isLive && (error || actions.length === 0) && (
+        <UnavailableStateCard
+          title="Approval Queue Service Unavailable"
+          endpoint="GET /api/actions"
+          statusCode={404}
+          errorCode="NOT_FOUND"
+          message="The action proposals and approval queue endpoints have not yet been deployed on the active backend (scheduled for Codex Milestone M4). In DEMO mode, the reserve-ben action proposal workflow is fully interactive."
+          onRetry={() => refetch()}
+        />
+      )}
 
       {/* Action Items List */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

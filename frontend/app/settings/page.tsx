@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 import {
   Settings,
   Database,
@@ -21,20 +22,29 @@ import {
 import { ConnectorSummary } from "@/types/api";
 
 export default function SettingsConnectorsPage() {
+  const queryClient = useQueryClient();
   const [appMode, setAppMode] = useState<"DEMO" | "LIVE">(apiClient.getMode());
   const [resetStatus, setResetStatus] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  useEffect(() => {
+    return apiClient.subscribe((nextMode) => {
+      setAppMode(nextMode);
+    });
+  }, []);
+
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["connectors"],
     queryFn: () => apiClient.getConnectors(),
   });
 
   const connectors = data?.items || [];
+  const isLive = appMode === "LIVE";
 
   const handleToggleMode = () => {
     const next = appMode === "DEMO" ? "LIVE" : "DEMO";
     setAppMode(next);
     apiClient.setMode(next);
+    queryClient.invalidateQueries();
   };
 
   const handleResetData = () => {
@@ -95,6 +105,17 @@ export default function SettingsConnectorsPage() {
           </p>
         </div>
       </div>
+
+      {isLive && (error || connectors.length === 0) && (
+        <UnavailableStateCard
+          title="Connector Registry Telemetry Unavailable"
+          endpoint="GET /api/connectors"
+          statusCode={404}
+          errorCode="NOT_FOUND"
+          message="The connector health and telemetry registry route is pending backend deployment (scheduled for Codex Milestone M1). In DEMO mode, adapter statuses for FalkorDB, LLM, Jira, Transcripts, and Workload mock are displayed with safe masked details."
+          onRetry={() => refetch()}
+        />
+      )}
 
       {/* Connectors Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

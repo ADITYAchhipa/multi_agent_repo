@@ -878,6 +878,20 @@ export default function PromiseDetailPage() {
               <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-600">
                 Decision will be signed by actor <strong>Aria Chen (reviewer)</strong> and committed to the PromiseSeal ledger.
               </div>
+
+              {reviewMutation.error && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-800 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                    Review Submission Failed:
+                  </div>
+                  <p>
+                    {reviewMutation.error instanceof Error
+                      ? reviewMutation.error.message
+                      : "An error occurred"}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">

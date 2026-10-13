@@ -549,6 +549,101 @@ export interface ConnectorSummary {
   safe_details: Record<string, string>;
 }
 
+export interface ActionApprovalRequest {
+  expected_revision: number;
+  proposal_hash: string;
+  reason: string;
+}
+
+export interface ActionRejectRequest {
+  expected_revision: number;
+  reason: string;
+}
+
+export interface ActionExecuteRequest {
+  expected_revision: number;
+  proposal_hash: string;
+}
+
+export interface ActionRequestApprovalRequest {
+  expected_revision: number;
+  proposal_hash: string;
+}
+
+export interface ActionReconcileRequest {
+  expected_revision: number;
+  reason: string;
+}
+
+export interface SimulationCreateRequest {
+  promise_id: string;
+  base_graph_revision: number;
+  question: string;
+  scenario_types: Array<
+    | "AS_REQUESTED"
+    | "RENEGOTIATE_DATE_OR_SCOPE"
+    | "CHANGE_ORDER_OR_EXTRA_CAPACITY"
+  >;
+  assumptions: ScenarioAssumption[];
+  parent_scenario_id?: string;
+}
+
+export interface ChatRequest {
+  question: string;
+  session_id?: string;
+  context?: {
+    promise_id?: string;
+    customer_id?: string;
+  };
+}
+
+export interface ChatConfirmedClaim {
+  claim_id: string;
+  text: string;
+  evidence_ref_ids: string[];
+  graph_path_ids: string[];
+}
+
+export interface ChatHypothesis {
+  claim_id: string;
+  text: string;
+  assumptions: string[];
+  evidence_ref_ids: string[];
+}
+
+export interface ChatResponse {
+  request_id: string;
+  answer: string;
+  confirmed_claims: ChatConfirmedClaim[];
+  hypotheses: ChatHypothesis[];
+  promise_ids: string[];
+  graph_paths: GraphPath[];
+  sources: EvidenceRef[];
+  conflicts: ConflictItem[];
+  freshness: Freshness;
+  evidence_quality: "LOW" | "MEDIUM" | "HIGH";
+  caveats: string[];
+  calculations: Calculation[];
+  scenario_ids: string[];
+  trace: { steps: TraceStep[] };
+  analysis_mode: "GENERATED" | "DETERMINISTIC_ONLY" | "REPLAY";
+  graph_revision: number;
+}
+
+export interface SessionBootstrapRequest {
+  credential: string;
+}
+
+export interface GraphResponse {
+  request_id: string;
+  graph_revision: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  paths: GraphPath[];
+  truncated: boolean;
+  expansion_hints?: string[];
+}
+
 export interface ApiErrorDetail {
   field?: string;
   reason: string;
@@ -567,10 +662,10 @@ export interface SessionInfo {
   request_id: string;
   actor: {
     id: string;
-    name: string;
-    roles: Array<"viewer" | "reviewer" | "executor" | "admin">;
+    name?: string;
+    roles: Array<"viewer" | "reviewer" | "executor" | "admin" | string>;
   };
-  tenant_id: string;
-  mode: "DEMO" | "LIVE";
+  tenant_id?: string;
+  mode: "DEMO" | "LIVE" | "MOCK" | string;
   expires_at: string;
 }

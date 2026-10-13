@@ -21,6 +21,7 @@ import {
   UserCheck,
   Terminal,
 } from "lucide-react";
+import { UnavailableStateCard } from "@/components/ui/unavailable-state";
 
 export default function ActionReceiptPage() {
   const params = useParams();
@@ -31,14 +32,21 @@ export default function ActionReceiptPage() {
 
   const currentActor = apiClient.getActor();
   const isExecutor = currentActor.roles.includes("executor");
+  const isLive = apiClient.getMode() === "LIVE";
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["action-detail", actionId],
     queryFn: () => apiClient.getAction(actionId),
   });
 
   const executeMutation = useMutation({
-    mutationFn: () => apiClient.executeAction(actionId),
+    mutationFn: () => {
+      if (!data?.action) throw new Error("Action proposal not loaded");
+      return apiClient.executeAction(actionId, {
+        expected_revision: data.action.revision,
+        proposal_hash: data.action.proposal_hash,
+      });
+    },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["action-detail", actionId] });
       queryClient.invalidateQueries({ queryKey: ["actions"] });
@@ -64,6 +72,28 @@ export default function ActionReceiptPage() {
   }
 
   if (error || !data) {
+    if (isLive) {
+      return (
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Link href="/actions" className="hover:text-slate-800 hover:underline">
+              Approval Queue
+            </Link>
+            <span>/</span>
+            <span className="font-mono text-slate-700">{actionId}</span>
+          </div>
+          <UnavailableStateCard
+            title={`Action Proposal '${actionId}' Unavailable`}
+            endpoint={`GET /api/actions/${encodeURIComponent(actionId)}`}
+            statusCode={404}
+            errorCode="NOT_FOUND"
+            message="This action proposal route has not yet been deployed on the active backend (scheduled for Codex Milestone M4). In DEMO mode, action-reserve-ben provides complete read-back audit records."
+            onRetry={() => refetch()}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="bg-white p-8 rounded-lg border border-rose-200 text-center space-y-3">
         <ShieldAlert className="w-10 h-10 text-rose-600 mx-auto" />

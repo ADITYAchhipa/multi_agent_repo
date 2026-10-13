@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Inbox,
@@ -28,6 +29,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [appMode, setAppMode] = useState<"DEMO" | "LIVE">(apiClient.getMode());
   const [activeRole, setActiveRole] = useState<
@@ -35,15 +37,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   >("reviewer");
   const [resetMessage, setResetMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    return apiClient.subscribe((nextMode) => {
+      setAppMode(nextMode);
+    });
+  }, []);
+
   const handleRoleChange = (role: "reviewer" | "executor" | "admin" | "viewer") => {
     setActiveRole(role);
     apiClient.setActor(role);
+    queryClient.invalidateQueries();
   };
 
   const handleModeToggle = () => {
     const nextMode = appMode === "DEMO" ? "LIVE" : "DEMO";
     setAppMode(nextMode);
     apiClient.setMode(nextMode);
+    queryClient.invalidateQueries();
   };
 
   const handleReset = () => {
