@@ -62,16 +62,17 @@ def build_proposal(
             "deliverable": candidate.deliverable,
             "customer_id": None,
             "project_id": None,
-            "deadline": {
-                "original_text": None,
-                "precision": "UNKNOWN",
-                "local_date": None,
-                "instant": None,
-                "timezone": None,
-                "resolution_basis": None,
-            },
-            "price_condition": {"kind": "UNKNOWN", "original_text": None},
-            "commercial_value": None,
+            "deadline": candidate.deadline.model_dump(),
+            "price_condition": candidate.price_condition.model_dump(),
+            "commercial_value": (
+                {
+                    "amount": candidate.commercial_amount,
+                    "currency": candidate.commercial_currency,
+                    "evidence_ref_id": evidence_id,
+                }
+                if candidate.commercial_amount is not None
+                else None
+            ),
             "commitment_class": candidate.commitment_class,
             "source_refs": [evidence.model_dump()],
             "contract_refs": [],

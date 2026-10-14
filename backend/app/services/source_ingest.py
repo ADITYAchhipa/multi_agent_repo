@@ -219,6 +219,10 @@ class SourceIngestService:
                             "signature": receipt.signature_base64url,
                             "statement": candidate.exact_excerpt,
                             "deliverable": candidate.deliverable,
+                            "deadline_iso": candidate.deadline.local_date,
+                            "deadline_text": candidate.deadline.original_text,
+                            "price_condition": candidate.price_condition.kind,
+                            "extraction_profile": candidate.extraction_profile,
                             "provenance": canonical_bytes(
                                 [receipt.payload.source_refs[0].model_dump()]
                             ).decode(),

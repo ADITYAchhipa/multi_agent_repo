@@ -133,11 +133,20 @@ class GraphRepository:
         ]
 
     def source_detail(self, tenant_id: str, source_id: str, admin: bool = False):
-        return self._read(
-            tenant_id,
-            sources.SOURCE_DETAIL,
-            {"tenant": tenant_id, "source": source_id, "admin": admin},
-        )
+        # Preserve the full-history response contract while bounding each DB query.
+        # Retry a read across concurrent writes, never return a mixed snapshot.
+        for _ in range(3):
+            revision = self.graph_revision(tenant_id)
+            rows = list(
+                self._pages(
+                    tenant_id,
+                    sources.SOURCE_DETAIL,
+                    {"tenant": tenant_id, "source": source_id, "admin": admin},
+                )
+            )
+            if revision == self.graph_revision(tenant_id):
+                return rows
+        raise GraphUnavailable("source history changed during read")
 
     def operation(self, tenant_id: str, actor_id: str, operation_id: str, admin: bool):
         rows = self._read(

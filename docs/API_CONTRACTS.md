@@ -1,6 +1,25 @@
 # Application API and adapter contracts
 
-Status: proposed v1 contracts, not implemented. Baseline §8's 22 routes are retained; additions are marked EXTENSION (D11). Application-owned DTOs below are not vendor API schemas. Schema/protocol documents own graph labels and signed payload definitions.
+Status: v1 design contracts with partial backend implementation. Baseline §8's 22 routes are retained; additions are marked EXTENSION (D11). Application-owned DTOs below are not vendor API schemas. Schema/protocol documents own graph labels and signed payload definitions.
+
+### Implementation status (current backend working tree, 2026-10-13)
+
+This mapping describes registered routes and their implemented scope, not completion of every
+behavior in the design tables below. Routes absent from the implemented rows remain proposed.
+
+| Status | Routes | Current scope / limits |
+| --- | --- | --- |
+| Implemented | `GET /api/health` | Existing configured graph readiness; separate `/internal/live` process probe |
+| Implemented, demo only | `POST /api/session`, `GET /api/session` | Configured local identities; production identity and logout remain pending |
+| Implemented, constrained ingestion | `POST /api/sources/upload`, `GET /api/sources/{source_id}`, `GET /api/operations/{operation_id}` | UTF-8 text/Markdown, deterministic chunks/candidates, signed publication and persistent operation reads; VTT, meeting context, reprocessing and cancellation pending |
+| Implemented, partial projections | `GET /api/promises`, `GET /api/promises/{promise_id}` | PUBLIC_DEMO reads, historical receipt selection; current-version pointer stays current. Risk filters, finance/scope calculations and conflict resolution remain pending |
+| Implemented, constrained review | `POST /api/promises/{promise_id}/review` | Authorized signed successor publication with revision/idempotency guards; disputed confirmation requires the unimplemented conflict workflow |
+| Implemented | `GET /api/promises/{promise_id}/verify`, `POST /api/receipts/verify`, `GET /api/audit/verify` | Signed bytes, available source evidence and complete paginated history/audit verification; no independent rollback checkpoint; action eligibility remains false |
+| Proposed, unimplemented | All other routes below | Includes knowledge health, connector import/sync/list, chat, simulations, actions/approvals/reconciliation, generic graph/trace, key lookup, revoke/retire, conflict resolution, session logout and operation cancellation |
+
+The historical receipt is identified by `receipt.payload.receipt_id`; `promise.current_version_id`
+is the current graph pointer even when `version_id` selects an older receipt. Selected receipt
+content and standing describe that historical version; the promise revision remains current.
 
 ## 1. Transport, auth, errors and scalar conventions
 

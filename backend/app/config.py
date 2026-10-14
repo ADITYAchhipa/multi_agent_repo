@@ -21,9 +21,13 @@ class PublicKeyConfig(BaseModel):
     trust: Literal["TRUSTED", "RETIRED", "COMPROMISED"] = "TRUSTED"
 
 
+from app.connectors.registry import ConnectorConfig
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="forbid", hide_input_in_errors=True)
 
+    connectors: list[ConnectorConfig] = []
     app_env: Literal["development", "demo", "production"] = "development"
     demo_mode: bool = True
     falkordb_host: str = Field(default="127.0.0.1", min_length=1)

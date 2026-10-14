@@ -60,7 +60,8 @@ FOREACH (chunk IN $chunks |
       promise_id:proposal.promise_id,version:1,payload_json:proposal.payload_json,
       payload_hash:proposal.payload_hash,canonicalization:'promiseops-json-v1',
       statement:proposal.statement,deliverable:proposal.deliverable,commitment_class:'ambiguous',
-      status_at_issuance:'PROPOSED',receipt_standing:'ACTIVE',price_condition:'UNKNOWN',
+      status_at_issuance:'PROPOSED',receipt_standing:'ACTIVE',price_condition:proposal.price_condition,
+      deadline_iso:proposal.deadline_iso,deadline_text:proposal.deadline_text,
       signature:proposal.signature,key_id:$key_id,issued_at:$now})
     CREATE (p)-[:HAS_VERSION {id:proposal.version_edge,tenant_id:$tenant,created_at:$now,
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'STRUCTURAL',
@@ -69,14 +70,14 @@ FOREACH (chunk IN $chunks |
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'EXTRACTED',
       source_id:$source,source_version_id:$version,source_hash:$raw_hash,
       evidence_quote:proposal.statement,start_offset:proposal.start_offset,
-      end_offset:proposal.end_offset,extracted_at:$now,model_id:'text-commitment-lines-v1',
+      end_offset:proposal.end_offset,extracted_at:$now,model_id:proposal.extraction_profile,
       confidence:'UNKNOWN',
       provenance_json:proposal.provenance,access_label:$access_label,acl_principals_json:'[]'}]->(pv)
     CREATE (pv)-[:SUPPORTED_BY {id:proposal.support_edge,tenant_id:$tenant,created_at:$now,
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'EXTRACTED',
       source_id:$source,source_version_id:$version,source_hash:$raw_hash,
       evidence_quote:proposal.statement,start_offset:proposal.start_offset,
-      end_offset:proposal.end_offset,extracted_at:$now,model_id:'text-commitment-lines-v1',
+      end_offset:proposal.end_offset,extracted_at:$now,model_id:proposal.extraction_profile,
       confidence:'UNKNOWN',
       provenance_json:proposal.provenance,access_label:$access_label,acl_principals_json:'[]'}]->(c)
     CREATE (pv)-[:HAS_EVENT {id:proposal.event_edge,tenant_id:$tenant,created_at:$now,
@@ -137,7 +138,8 @@ FOREACH (chunk IN $chunks |
       promise_id:proposal.promise_id,version:1,payload_json:proposal.payload_json,
       payload_hash:proposal.payload_hash,canonicalization:'promiseops-json-v1',
       statement:proposal.statement,deliverable:proposal.deliverable,commitment_class:'ambiguous',
-      status_at_issuance:'PROPOSED',receipt_standing:'ACTIVE',price_condition:'UNKNOWN',
+      status_at_issuance:'PROPOSED',receipt_standing:'ACTIVE',price_condition:proposal.price_condition,
+      deadline_iso:proposal.deadline_iso,deadline_text:proposal.deadline_text,
       signature:proposal.signature,key_id:$key_id,issued_at:$now})
     CREATE (p)-[:HAS_VERSION {id:proposal.version_edge,tenant_id:$tenant,created_at:$now,
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'STRUCTURAL',
@@ -146,14 +148,14 @@ FOREACH (chunk IN $chunks |
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'EXTRACTED',
       source_id:$source,source_version_id:$version,source_hash:$raw_hash,
       evidence_quote:proposal.statement,start_offset:proposal.start_offset,
-      end_offset:proposal.end_offset,extracted_at:$now,model_id:'text-commitment-lines-v1',
+      end_offset:proposal.end_offset,extracted_at:$now,model_id:proposal.extraction_profile,
       confidence:'UNKNOWN',
       provenance_json:proposal.provenance,access_label:$access_label,acl_principals_json:'[]'}]->(pv)
     CREATE (pv)-[:SUPPORTED_BY {id:proposal.support_edge,tenant_id:$tenant,created_at:$now,
       status:'ACTIVE',valid_from:$now,recorded_at:$now,provenance_kind:'EXTRACTED',
       source_id:$source,source_version_id:$version,source_hash:$raw_hash,
       evidence_quote:proposal.statement,start_offset:proposal.start_offset,
-      end_offset:proposal.end_offset,extracted_at:$now,model_id:'text-commitment-lines-v1',
+      end_offset:proposal.end_offset,extracted_at:$now,model_id:proposal.extraction_profile,
       confidence:'UNKNOWN',
       provenance_json:proposal.provenance,access_label:$access_label,acl_principals_json:'[]'}]->(c)
     CREATE (pv)-[:HAS_EVENT {id:proposal.event_edge,tenant_id:$tenant,created_at:$now,
@@ -186,7 +188,7 @@ RETURN r.id,r.source_type,r.title,r.current_version_id,r.source_updated_at,
        r.ingested_at,r.content_hash,r.retention_state,r.parse_status,
        v.id,v.version,v.content_hash,v.representation_hash,v.availability,
        v.source_updated_at
-ORDER BY v.version LIMIT 100
+ORDER BY v.version,id(e) SKIP $offset LIMIT $limit
 """
 
 OPERATION = """

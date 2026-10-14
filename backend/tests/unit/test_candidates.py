@@ -56,3 +56,80 @@ def test_signer_rejects_fabricated_candidate_offsets(keys):
             private_key=private,
             trusted_key=trusted,
         )
+
+
+def test_explicit_named_party_and_grounded_terms():
+    text = "Alice: Acme will deliver the API by 2026-12-01 for USD 1200.50 if approved."
+    item = extract_candidates(text, chunk_text(text))[0]
+    assert item.deadline.local_date == "2026-12-01"
+    assert item.deadline.instant is None
+    assert item.commercial_amount == "1200.5"
+    assert item.commercial_currency == "USD"
+    assert item.price_condition.kind == "PRICED"
+    assert item.commitment_class == "ambiguous"
+    assert item.exact_excerpt == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "We will deliver by 2026-02-30.",
+        "We will deliver by Friday.",
+        "We will deliver by 2026-12-01 or by 2026-12-05.",
+    ],
+)
+def test_unresolved_and_ambiguous_dates_are_not_invented(text):
+    item = extract_candidates(text, chunk_text(text))[0]
+    assert item.deadline.precision == "UNKNOWN"
+    assert item.deadline.local_date is None
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "for $100",
+        "for USD 100 or for EUR 200",
+        "for USD 100 or EUR 200",
+        "for USD 100 per month",
+        "for USD 10.12345",
+        "for USD 100 at no additional charge",
+    ],
+)
+def test_ambiguous_money_does_not_imply_value(suffix):
+    text = "We will deliver the API " + suffix
+    item = extract_candidates(text, chunk_text(text))[0]
+    assert item.commercial_amount is None
+
+
+def test_grounded_terms_are_signed_without_inventing_entities(keys):
+    text = "Acme will deliver the API by 2026-12-01 for EUR 300."
+    item = extract_candidates(text, chunk_text(text))[0]
+    private, trusted, _ = keys
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    receipt = build_proposal(
+        item,
+        tenant="tenant-demo",
+        source="source-demo",
+        version="source-demo-v1",
+        promise_id="promise-demo",
+        receipt_id="promise-demo-v1",
+        evidence_id="evidence-demo",
+        access_label="PUBLIC_DEMO",
+        raw=text.encode(),
+        representation=text,
+        raw_hash=digest,
+        representation_hash=digest,
+        now="2026-10-12T00:00:00.000Z",
+        private_key=private,
+        trusted_key=trusted,
+    )
+    assert receipt.payload.customer_id is None
+    assert receipt.payload.project_id is None
+    assert receipt.payload.deadline.local_date == "2026-12-01"
+    assert receipt.payload.commercial_value.evidence_ref_id == "evidence-demo"
+    assert receipt.payload.commercial_value.amount == "300"
+
+
+def test_original_case_insensitive_first_person_profile_is_preserved():
+    text = "we WILL DELIVER the API."
+    assert len(extract_candidates(text, chunk_text(text))) == 1

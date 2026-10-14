@@ -12,11 +12,13 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
+from app.api import actions, connectors, scenarios
 from app.api.audit import router as audit_router
 from app.api.promises import router as promises_router
 from app.api.session import router as session_router
 from app.api.sources import router as sources_router
 from app.config import Settings
+from app.connectors.registry import build_registry
 from app.graph.connection import GraphConnection, GraphUnavailable
 from app.graph.repository import GraphRepository
 from app.models.api import ErrorBody, ErrorResponse, HealthResponse, Services
@@ -134,6 +136,11 @@ def create_app(settings: Settings | None = None, graph: GraphConnection | None =
     def live(request: Request):
         return {"request_id": request.state.request_id, "status": "OK"}
 
+    repository = GraphRepository(graph)
+    ingest = SourceIngestService(settings, graph)
+    app.include_router(actions.router(settings, repository))
+    app.include_router(scenarios.router(settings, repository))
+    app.include_router(connectors.router(settings, ingest, build_registry(settings)))
     app.include_router(session_router(settings))
     app.include_router(promises_router(settings, GraphRepository(graph)))
     app.include_router(
