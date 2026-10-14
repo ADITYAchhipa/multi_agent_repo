@@ -78,4 +78,55 @@ describe("ApiClient & Envelope Handling", () => {
       expect(err.status).toBe(403);
     }
   });
+
+  it("handles source document upload and operation tracking in DEMO mode", async () => {
+    const blob = new Blob(["We will deliver the loyalty integration by Friday at no extra charge."], {
+      type: "text/plain",
+    });
+
+    const uploadRes = await apiClient.uploadSource({
+      file: blob,
+      filename: "notes.txt",
+      sourceType: "NOTES",
+      accessLabel: "PUBLIC_DEMO",
+      sourceKey: "test-meeting-notes",
+    });
+
+    expect("operation_id" in uploadRes).toBe(true);
+    if ("operation_id" in uploadRes) {
+      expect(uploadRes.operation_id).toBeDefined();
+      expect(uploadRes.source_id).toBeDefined();
+      expect(uploadRes.status_url).toContain("/api/operations/");
+
+      const op = await apiClient.getOperation(uploadRes.operation_id);
+      expect(op.operation.id).toBe(uploadRes.operation_id);
+      expect(op.operation.status).toBe("COMPLETED");
+      expect(op.operation.phase).toBe("COMPLETED");
+
+      const src = await apiClient.getSource(uploadRes.source_id);
+      expect(src.source.id).toBe(uploadRes.source_id);
+      expect(src.source.source_type).toBe("NOTES");
+      expect(src.snippets.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("verifies immutable cryptographic audit hash chain", async () => {
+    const auditRes = await apiClient.getAuditVerification(1, 3);
+    expect(auditRes.chain_result).toBe("VALID");
+    expect(auditRes.checked_range.from_sequence).toBe(1);
+    expect(auditRes.checked_range.to_sequence).toBe(3);
+    expect(auditRes.checks.length).toBe(3);
+    expect(auditRes.checks.every((c) => c.result === "PASS")).toBe(true);
+  });
+
+  it("bootstraps session and handles role permissions", async () => {
+    const session = await apiClient.getSession();
+    expect(session.actor).toBeDefined();
+    expect(session.expires_at).toBeDefined();
+
+    const bootRes = await apiClient.bootstrapSession("admin-credential");
+    expect(bootRes.actor.roles).toContain("admin");
+    expect(apiClient.getActor().roles).toContain("admin");
+  });
 });
+

@@ -342,7 +342,11 @@ export default function OverviewPage() {
                           <StatusBadge status={promise.scope_status} size="sm" />
                         </td>
                         <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
-                          {promise.deadline?.original_text || "Unspecified"}
+                          {typeof promise.deadline === "string"
+                            ? promise.deadline
+                            : promise.deadline?.original_text ||
+                              promise.deadline?.instant ||
+                              "Unspecified"}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <Link

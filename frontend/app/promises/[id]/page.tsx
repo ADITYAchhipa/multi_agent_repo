@@ -86,14 +86,22 @@ export default function PromiseDetailPage() {
     mutationFn: (decisionPayload: {
       decision: "CONFIRM" | "DISPUTE" | "REJECT" | "REVISE";
       reason: string;
-    }) =>
-      apiClient.reviewPromise(promiseId, {
+    }) => {
+      const parentRefs =
+        data?.receipt?.payload?.source_refs?.map((r) => r.evidence_ref_id) ||
+        data?.evidence?.map((e) => e.evidence_ref_id) ||
+        [];
+      const evidenceRefIds =
+        parentRefs.length > 0 ? parentRefs : ["ev-meeting-1-quote"];
+
+      return apiClient.reviewPromise(promiseId, {
         expected_version_id: data!.promise.current_version_id,
         expected_revision: data!.promise.revision,
         decision: decisionPayload.decision,
         reason: decisionPayload.reason,
-        evidence_ref_ids: ["ev-meeting-1-quote"],
-      }),
+        evidence_ref_ids: evidenceRefIds,
+      });
+    },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["promise-detail", promiseId] });
       queryClient.invalidateQueries({ queryKey: ["promises"] });
@@ -389,7 +397,9 @@ export default function PromiseDetailPage() {
                       <StatusBadge status={ver.status_at_issuance} size="sm" />
                     </div>
                     <span className="text-slate-500 text-[11px]">
-                      {new Date(ver.created_at).toLocaleString()}
+                      {ver.created_at
+                        ? new Date(ver.created_at).toLocaleString()
+                        : "Active Version"}
                     </span>
                   </div>
                 ))}

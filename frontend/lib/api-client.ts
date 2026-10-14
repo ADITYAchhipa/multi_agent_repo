@@ -26,6 +26,11 @@ import {
   ChatRequest,
   ChatResponse,
   GraphResponse,
+  UploadAccepted,
+  UploadNoChange,
+  OperationResponse,
+  SourceDetailResponse,
+  AuditVerifyResponse,
 } from "@/types/api";
 import {
   SEED_PROMISES,
@@ -100,6 +105,13 @@ let demoActions = [...SEED_ACTIONS];
 let demoKnowledge = { ...SEED_KNOWLEDGE };
 
 export type ModeChangeListener = (mode: "DEMO" | "LIVE") => void;
+
+export const DEMO_CREDENTIALS: Record<string, string> = {
+  admin: "admin-credential",
+  reviewer: "reviewer-credential",
+  executor: "executor-credential",
+  viewer: "viewer-credential",
+};
 
 export class ApiClient {
   private baseUrl: string;
@@ -210,7 +222,7 @@ export class ApiClient {
       if (!isSessionBootstrap && !headers.has("Idempotency-Key")) {
         headers.set("Idempotency-Key", this.generateIdempotencyKey());
       }
-      if (!headers.has("Content-Type")) {
+      if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
       }
     }
@@ -228,6 +240,7 @@ export class ApiClient {
         ...options,
         method,
         headers,
+        credentials: "include",
         signal: controller.signal,
       });
 
@@ -304,13 +317,23 @@ export class ApiClient {
     return this.request<SessionInfo>("/session");
   }
 
-  async bootstrapSession(credential: string): Promise<SessionInfo> {
+  async bootstrapSession(credential?: string): Promise<SessionInfo> {
     if (this.mode === "DEMO") {
+      if (credential) {
+        if (credential.includes("admin")) this.setActor("admin");
+        else if (credential.includes("executor")) this.setActor("executor");
+        else if (credential.includes("viewer")) this.setActor("viewer");
+        else if (credential.includes("reviewer")) this.setActor("reviewer");
+      }
       return this.getSession();
     }
+    const cred =
+      credential ||
+      DEMO_CREDENTIALS[this.currentActor.roles[0]] ||
+      "reviewer-credential";
     return this.request<SessionInfo>("/session", {
       method: "POST",
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential: cred }),
     });
   }
 
@@ -367,6 +390,143 @@ export class ApiClient {
     return this.request("/connectors");
   }
 
+  // --- Sources & Operations ---
+
+  async uploadSource(params: {
+    file: File | Blob;
+    filename?: string;
+    sourceType?: "TRANSCRIPT" | "NOTES" | "CONTRACT";
+    accessLabel?: "PUBLIC_DEMO" | "INTERNAL" | "RESTRICTED";
+    sourceKey?: string;
+  }): Promise<UploadAccepted | UploadNoChange> {
+    const {
+      file,
+      filename = (file as File).name || "notes.txt",
+      sourceType = "NOTES",
+      accessLabel = "PUBLIC_DEMO",
+      sourceKey,
+    } = params;
+
+    if (this.mode === "DEMO") {
+      const sourceId = `source-${Date.now()}`;
+      const operationId = `operation-${Date.now()}`;
+      return {
+        request_id: this.generateRequestId(),
+        operation_id: operationId,
+        source_id: sourceId,
+        status_url: `/api/operations/${operationId}`,
+      };
+    }
+
+    const formData = new FormData();
+    formData.append("file", file, filename);
+    formData.append("source_type", sourceType);
+    formData.append("access_label", accessLabel);
+    if (sourceKey) {
+      formData.append("source_key", sourceKey);
+    }
+
+    return this.request<UploadAccepted | UploadNoChange>("/sources/upload", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async getSource(
+    sourceId: string,
+    versionId?: string,
+    chunkId?: string
+  ): Promise<SourceDetailResponse> {
+    const encodedId = encodeURIComponent(sourceId);
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-source-demo",
+        source: {
+          id: sourceId,
+          source_type: "NOTES",
+          title: "demo-notes.txt",
+          current_version_id: `${sourceId}-v1`,
+          source_updated_at: new Date().toISOString(),
+          ingested_at: new Date().toISOString(),
+          content_hash: "hash-raw-demo",
+          retention_state: "ACTIVE",
+          parse_status: "SUCCESS",
+          mode: "DEMO",
+        },
+        version: {
+          id: `${sourceId}-v1`,
+          source_hash: "hash-raw-demo",
+          representation_hash: "hash-rep-demo",
+          availability: "AVAILABLE",
+        },
+        snippets: demoPromiseDetail.evidence,
+        versions: [
+          {
+            id: `${sourceId}-v1`,
+            version: 1,
+            source_updated_at: new Date().toISOString(),
+            availability: "AVAILABLE",
+          },
+        ],
+      };
+    }
+
+    const searchParams = new URLSearchParams();
+    if (versionId) searchParams.set("version_id", versionId);
+    if (chunkId) searchParams.set("chunk_id", chunkId);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return this.request<SourceDetailResponse>(`/sources/${encodedId}${query}`);
+  }
+
+  async getOperation(operationId: string): Promise<OperationResponse> {
+    const encodedId = encodeURIComponent(operationId);
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-operation-demo",
+        operation: {
+          id: operationId,
+          kind: "SOURCE_INGESTION",
+          status: "COMPLETED",
+          phase: "COMPLETED",
+          created_at: new Date().toISOString(),
+          started_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
+          errors: [],
+          progress: { completed: 1, total: 1 },
+        },
+      };
+    }
+    return this.request<OperationResponse>(`/operations/${encodedId}`);
+  }
+
+  async getAuditVerification(
+    fromSequence = 1,
+    toSequence?: number
+  ): Promise<AuditVerifyResponse> {
+    if (this.mode === "DEMO") {
+      return {
+        request_id: "req-audit-verify-demo",
+        checked_range: { from_sequence: 1, to_sequence: 3 },
+        chain_result: "VALID",
+        checks: [
+          { sequence: 1, code: "AUDIT_EVENT", result: "PASS" },
+          { sequence: 2, code: "AUDIT_EVENT", result: "PASS" },
+          { sequence: 3, code: "AUDIT_EVENT", result: "PASS" },
+        ],
+        checkpoint: { available: false, trusted: false, sequence: null },
+        limitations: ["Simulated local demo audit ledger; external checkpoint not configured."],
+      };
+    }
+
+    const searchParams = new URLSearchParams();
+    searchParams.set("from_sequence", String(fromSequence));
+    if (toSequence) {
+      searchParams.set("to_sequence", String(toSequence));
+    }
+    return this.request<AuditVerifyResponse>(`/audit/verify?${searchParams.toString()}`);
+  }
+
+
   // --- Promises & Verification ---
 
   async getPromises(params?: {
@@ -400,7 +560,7 @@ export class ApiClient {
     if (params?.customer_id) {
       searchParams.set("customer_id", params.customer_id);
     }
-    if (params?.risk) {
+    if (params?.risk && this.mode !== "LIVE") {
       searchParams.set("risk", params.risk);
     }
     if (params?.deadline_from) {

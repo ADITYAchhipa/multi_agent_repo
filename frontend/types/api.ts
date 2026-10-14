@@ -62,7 +62,7 @@ export interface SourceSummary {
   content_hash: string;
   retention_state: string;
   parse_status: string;
-  mode: "IMPORT" | "MOCK" | "LIVE";
+  mode: "IMPORT" | "MOCK" | "LIVE" | "DEMO";
 }
 
 export interface Freshness {
@@ -111,7 +111,7 @@ export interface PromiseSummary {
   customer_name?: string;
   project_id: string | null;
   deliverable: string;
-  deadline: PromiseDeadline | null;
+  deadline: PromiseDeadline | string | null;
   scope_status: ScopeStatus;
   risk_flags: string[];
   freshness: Freshness;
@@ -292,9 +292,11 @@ export interface Verification {
   checked_at: string;
   checks: VerificationCheck[];
   source_results: Array<{
-    source_id: string;
+    source_id?: string;
+    evidence_ref_id?: string;
     result: "MATCH" | "MISMATCH" | "UNAVAILABLE";
     details?: string;
+    reason?: string | null;
   }>;
   key_trust: KeyTrust;
   eligible_for_action: boolean;
@@ -335,7 +337,7 @@ export interface PromiseDetailResponse {
     version: number;
     status_at_issuance: PromiseState;
     standing: ReceiptStanding;
-    created_at: string;
+    created_at?: string;
   }>;
   evidence: EvidenceRef[];
   scope_assessment: ScopeAssessment;
@@ -669,3 +671,71 @@ export interface SessionInfo {
   mode: "DEMO" | "LIVE" | "MOCK" | string;
   expires_at: string;
 }
+
+export interface UploadAccepted {
+  request_id: string;
+  operation_id: string;
+  source_id: string;
+  status_url: string;
+}
+
+export interface UploadNoChange {
+  request_id: string;
+  source_id: string;
+  source_version_id: string;
+  outcome: "NO_CHANGE";
+}
+
+export interface OperationResponse {
+  request_id: string;
+  operation: Operation;
+}
+
+export interface SourceVersionSummary {
+  id: string;
+  source_hash: string;
+  representation_hash: string;
+  availability: string;
+}
+
+export interface SourceVersionItem {
+  id: string;
+  version: number;
+  source_updated_at: string | null;
+  availability: string;
+}
+
+export interface SourceDetailResponse {
+  request_id: string;
+  source: SourceSummary;
+  version: SourceVersionSummary;
+  snippets: EvidenceRef[];
+  versions: SourceVersionItem[];
+}
+
+export interface AuditCheck {
+  sequence: number;
+  code: string;
+  result: "PASS" | "FAIL" | "UNAVAILABLE" | "VALID" | "INVALID" | "INDETERMINATE" | string;
+  actor_id?: string;
+  event_hash?: string;
+  field?: string | null;
+  reason?: string | null;
+}
+
+export interface AuditVerifyResponse {
+  request_id: string;
+  checked_range: {
+    from_sequence: number;
+    to_sequence: number;
+  };
+  chain_result: "VALID" | "INVALID" | "INDETERMINATE";
+  checks: AuditCheck[];
+  checkpoint: {
+    available: boolean;
+    trusted: boolean;
+    sequence?: number | null;
+  };
+  limitations: string[];
+}
+

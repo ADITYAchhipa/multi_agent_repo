@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -16,13 +16,71 @@ import {
   Clock,
   Sparkles,
   ExternalLink,
+  UploadCloud,
+  FileUp,
+  Plus,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import { PromiseState, PromiseSummary } from "@/types/api";
 
 export default function PromiseInboxPage() {
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [customerFilter, setCustomerFilter] = useState<string>("ALL");
+
+  // Source upload modal state
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadText, setUploadText] = useState(
+    "Meeting with Acme Retail leadership on 2026-10-12:\nWe will deliver the loyalty integration by Friday at no extra charge.\n"
+  );
+  const [uploadSourceType, setUploadSourceType] = useState<
+    "NOTES" | "TRANSCRIPT" | "CONTRACT"
+  >("NOTES");
+  const [uploadSourceKey, setUploadSourceKey] = useState("meeting-acme-loyalty");
+  const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+
+  // Close upload modal on Escape key
+  React.useEffect(() => {
+    if (!uploadModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUploadModalOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [uploadModalOpen]);
+
+  const uploadMutation = useMutation({
+    mutationFn: async () => {
+      const blob = new Blob([uploadText], { type: "text/plain" });
+      return apiClient.uploadSource({
+        file: blob,
+        filename: "notes.txt",
+        sourceType: uploadSourceType,
+        accessLabel: "PUBLIC_DEMO",
+        sourceKey: uploadSourceKey.trim() || undefined,
+      });
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["promises"] });
+      setUploadModalOpen(false);
+      setUploadFeedback(
+        `Source document ingested successfully (Operation: ${
+          "operation_id" in res ? res.operation_id : "NO_CHANGE"
+        }). FalkorDB extracted literal commitment into a signed PROPOSED receipt.`
+      );
+      setTimeout(() => setUploadFeedback(null), 6000);
+    },
+    onError: (err: any) => {
+      const isForbidden = err?.status === 403 || err?.code === "ROLE_FORBIDDEN";
+      setUploadFeedback(
+        isForbidden
+          ? "Upload rejected (403): Source ingestion requires 'admin' role. Switch persona to Admin in Settings."
+          : `Upload failed: ${err.message || "Failed to ingest source"}`
+      );
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["promises", statusFilter, customerFilter],
@@ -65,12 +123,33 @@ export default function PromiseInboxPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-500 font-mono">
-            Triage Confidence: STRICT EVIDENCE REQUIRED
-          </span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setUploadModalOpen(true)}
+            className="inline-flex items-center px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-700 text-white font-medium text-xs shadow-sm transition-colors"
+          >
+            <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
+            Ingest Source Document
+          </button>
         </div>
       </div>
+
+      {uploadFeedback && (
+        <div
+          className={`p-3 rounded-md text-xs font-medium flex items-center gap-2 ${
+            uploadFeedback.includes("failed")
+              ? "bg-rose-50 border border-rose-300 text-rose-900"
+              : "bg-emerald-50 border border-emerald-300 text-emerald-900"
+          }`}
+        >
+          {uploadFeedback.includes("failed") ? (
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          )}
+          <span>{uploadFeedback}</span>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
@@ -278,9 +357,13 @@ export default function PromiseInboxPage() {
 
                       <td className="py-3 px-3 font-mono text-[11px]">
                         <span className="font-medium text-slate-800 block">
-                          {promise.deadline?.original_text || "Unresolved"}
+                          {typeof promise.deadline === "string"
+                            ? promise.deadline
+                            : promise.deadline?.original_text ||
+                              promise.deadline?.instant ||
+                              "Unresolved"}
                         </span>
-                        {promise.deadline?.instant && (
+                        {typeof promise.deadline === "object" && promise.deadline?.instant && (
                           <span className="text-slate-500 text-[10px]">
                             {new Date(promise.deadline.instant).toLocaleDateString()}
                           </span>
@@ -327,6 +410,124 @@ export default function PromiseInboxPage() {
           Unconfirmed extractions enter as <span className="font-mono font-semibold">PROPOSED</span>. Confirmation requires an authenticated reviewer action and creates an immutable audit event and successor receipt version. An extracted statement is never automatically a confirmed commitment.
         </div>
       </div>
+
+      {/* Ingest Source Document Modal */}
+      {uploadModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <UploadCloud className="w-4 h-4 text-sky-600" />
+                  Ingest Source Document
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Direct live extraction into FalkorDB graph & PromiseSeal proposal
+                </p>
+              </div>
+              <button
+                onClick={() => setUploadModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Source Type
+                  </label>
+                  <select
+                    value={uploadSourceType}
+                    onChange={(e) =>
+                      setUploadSourceType(
+                        e.target.value as "NOTES" | "TRANSCRIPT" | "CONTRACT"
+                      )
+                    }
+                    className="w-full text-xs rounded-md border border-slate-300 py-1.5 px-2.5 bg-white text-slate-800 font-medium focus:outline-none focus:border-sky-500"
+                  >
+                    <option value="NOTES">Meeting Notes (NOTES)</option>
+                    <option value="TRANSCRIPT">Meeting Transcript (TRANSCRIPT)</option>
+                    <option value="CONTRACT">Contract Document (CONTRACT)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Source Key / Ref
+                  </label>
+                  <input
+                    type="text"
+                    value={uploadSourceKey}
+                    onChange={(e) => setUploadSourceKey(e.target.value)}
+                    placeholder="e.g. meeting-acme-loyalty"
+                    className="w-full text-xs rounded-md border border-slate-300 py-1.5 px-2.5 bg-white text-slate-800 font-medium focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Document Text (contains literal commitment)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setUploadText(
+                        `Meeting with Acme Retail leadership on 2026-10-12:\nWe will deliver the loyalty integration by Friday at no extra charge.\n`
+                      )
+                    }
+                    className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
+                  >
+                    Load Sample
+                  </button>
+                </div>
+                <textarea
+                  rows={5}
+                  value={uploadText}
+                  onChange={(e) => setUploadText(e.target.value)}
+                  placeholder="Paste meeting notes or conversation text..."
+                  className="w-full text-xs font-mono rounded-md border border-slate-300 p-2.5 bg-slate-50 focus:bg-white text-slate-800 focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div className="p-2.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
+                <span className="font-semibold">Live Integration Note:</span> Uploading invokes the backend&apos;s literal commitment extractor. Extracted commitments are cryptographically signed with the runtime Ed25519 key and entered into the FalkorDB ledger with state <span className="font-mono font-bold">PROPOSED</span>.
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(false)}
+                className="px-3 py-1.5 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={uploadMutation.isPending || !uploadText.trim()}
+                onClick={() => uploadMutation.mutate()}
+                className="inline-flex items-center px-3.5 py-1.5 rounded-md text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {uploadMutation.isPending ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />
+                    Ingesting...
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
+                    Ingest &amp; Extract
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
