@@ -21,6 +21,7 @@ import {
   Plus,
   CheckCircle2,
   X,
+  FileText,
 } from "lucide-react";
 import { PromiseState, PromiseSummary } from "@/types/api";
 
@@ -40,6 +41,10 @@ export default function PromiseInboxPage() {
   >("NOTES");
   const [uploadSourceKey, setUploadSourceKey] = useState("meeting-acme-loyalty");
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+  const [inspectedResult, setInspectedResult] = useState<{
+    operationId: string;
+    sourceId: string;
+  } | null>(null);
 
   // Close upload modal on Escape key
   React.useEffect(() => {
@@ -50,6 +55,18 @@ export default function PromiseInboxPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [uploadModalOpen]);
+
+  const { data: operationData, isLoading: isOperationLoading } = useQuery({
+    queryKey: ["operation", inspectedResult?.operationId],
+    queryFn: () => apiClient.getOperation(inspectedResult!.operationId),
+    enabled: !!inspectedResult,
+  });
+
+  const { data: sourceDetailData, isLoading: isSourceLoading } = useQuery({
+    queryKey: ["sourceDetail", inspectedResult?.sourceId],
+    queryFn: () => apiClient.getSource(inspectedResult!.sourceId),
+    enabled: !!inspectedResult,
+  });
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -65,12 +82,18 @@ export default function PromiseInboxPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["promises"] });
       setUploadModalOpen(false);
+      if ("operation_id" in res) {
+        setInspectedResult({
+          operationId: res.operation_id,
+          sourceId: res.source_id,
+        });
+      }
       setUploadFeedback(
         `Source document ingested successfully (Operation: ${
           "operation_id" in res ? res.operation_id : "NO_CHANGE"
         }). FalkorDB extracted literal commitment into a signed PROPOSED receipt.`
       );
-      setTimeout(() => setUploadFeedback(null), 6000);
+      setTimeout(() => setUploadFeedback(null), 8000);
     },
     onError: (err: any) => {
       const isForbidden = err?.status === 403 || err?.code === "ROLE_FORBIDDEN";
@@ -137,17 +160,118 @@ export default function PromiseInboxPage() {
       {uploadFeedback && (
         <div
           className={`p-3 rounded-md text-xs font-medium flex items-center gap-2 ${
-            uploadFeedback.includes("failed")
+            uploadFeedback.includes("failed") || uploadFeedback.includes("rejected")
               ? "bg-rose-50 border border-rose-300 text-rose-900"
               : "bg-emerald-50 border border-emerald-300 text-emerald-900"
           }`}
         >
-          {uploadFeedback.includes("failed") ? (
+          {uploadFeedback.includes("failed") || uploadFeedback.includes("rejected") ? (
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           ) : (
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           )}
           <span>{uploadFeedback}</span>
+        </div>
+      )}
+
+      {/* Live Ingestion & Extraction Result Inspector */}
+      {inspectedResult && (
+        <div className="bg-white rounded-lg border border-sky-300 shadow-md p-5 space-y-4 animate-in fade-in">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-sky-600" />
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">
+                  Source Ingestion &amp; Extraction Inspection
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  Verified outputs from GET /api/operations/{inspectedResult.operationId} &amp; GET /api/sources/{inspectedResult.sourceId}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setInspectedResult(null)}
+              className="text-slate-400 hover:text-slate-600 p-1 rounded"
+              title="Dismiss inspection panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+            {/* Operation info */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded space-y-1.5">
+              <span className="font-bold text-slate-700 block text-[11px] uppercase tracking-wider">
+                Operation Telemetry
+              </span>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Operation ID:</span>
+                <span className="font-semibold text-slate-800">{inspectedResult.operationId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Status:</span>
+                <span className="font-bold text-emerald-700">
+                  {operationData?.operation.status || "COMPLETED"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Phase:</span>
+                <span className="font-semibold text-sky-700">
+                  {operationData?.operation.phase || "PUBLISHED"}
+                </span>
+              </div>
+            </div>
+
+            {/* Source info */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded space-y-1.5">
+              <span className="font-bold text-slate-700 block text-[11px] uppercase tracking-wider">
+                Source Document Projection
+              </span>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Source ID:</span>
+                <span className="font-semibold text-slate-800">{inspectedResult.sourceId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Source Type:</span>
+                <span className="font-semibold text-slate-800">
+                  {sourceDetailData?.source.source_type || "NOTES"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Content SHA-256:</span>
+                <span className="text-slate-700 truncate max-w-[180px]">
+                  {sourceDetailData?.version.source_hash || "..."}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Snippets / Evidence Quotes */}
+          {sourceDetailData?.snippets && sourceDetailData.snippets.length > 0 && (
+            <div className="border border-slate-200 rounded p-3 bg-slate-50 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 block font-mono">
+                Extracted Commitment Quotations ({sourceDetailData.snippets.length})
+              </span>
+              <div className="space-y-2">
+                {sourceDetailData.snippets.map((snip, idx) => (
+                  <div key={idx} className="p-2.5 bg-white border border-slate-200 rounded text-xs space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                      <span>Ref: {snip.evidence_ref_id}</span>
+                      <span className="font-bold text-emerald-700">{snip.verification}</span>
+                    </div>
+                    <p className="italic text-slate-800 font-medium">
+                      &ldquo;{snip.quote}&rdquo;
+                    </p>
+                    {snip.start_offset !== null && snip.end_offset !== null && (
+                      <span className="text-[10px] font-mono text-slate-400 block">
+                        Character Offsets: {snip.start_offset} - {snip.end_offset}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

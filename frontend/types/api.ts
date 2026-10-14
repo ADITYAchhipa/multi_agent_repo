@@ -194,7 +194,7 @@ export interface TraceStep {
 export interface Operation {
   id: string;
   kind: string;
-  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
   phase: string;
   created_at: string;
   started_at: string | null;

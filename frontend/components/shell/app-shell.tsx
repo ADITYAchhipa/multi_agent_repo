@@ -21,7 +21,7 @@ import {
   Database,
   ExternalLink,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, DEMO_CREDENTIALS } from "@/lib/api-client";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -52,9 +52,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const handleRoleChange = (role: "reviewer" | "executor" | "admin" | "viewer") => {
+  useEffect(() => {
+    if (appMode === "LIVE") {
+      apiClient
+        .getSession()
+        .then((s) => {
+          if (s?.actor?.id) {
+            const matched = (
+              ["admin", "reviewer", "executor", "viewer"] as const
+            ).find(
+              (r) => s.actor.id.includes(r) || s.actor.roles.includes(r)
+            );
+            if (matched) setActiveRole(matched);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [appMode]);
+
+  const handleRoleChange = async (role: "reviewer" | "executor" | "admin" | "viewer") => {
     setActiveRole(role);
     apiClient.setActor(role);
+    if (appMode === "LIVE") {
+      try {
+        await apiClient.bootstrapSession(DEMO_CREDENTIALS[role]);
+      } catch (err) {
+        console.error("Live session bootstrap failed:", err);
+      }
+    }
     queryClient.invalidateQueries();
   };
 

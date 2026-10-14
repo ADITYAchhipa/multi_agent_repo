@@ -128,5 +128,22 @@ describe("ApiClient & Envelope Handling", () => {
     expect(bootRes.actor.roles).toContain("admin");
     expect(apiClient.getActor().roles).toContain("admin");
   });
+
+  it("retrieves historical version receipt without mutating head pointer", async () => {
+    const detail = await apiClient.getPromiseDetail("promise-loyalty", "receipt-loyalty-v1");
+    expect(detail.promise.id).toBe("promise-loyalty");
+    expect(detail.receipt.payload.receipt_id).toBe("receipt-loyalty-v1");
+    expect(detail.promise.current_version_id).toBe("receipt-loyalty-v1");
+    expect(detail.versions.length).toBeGreaterThan(0);
+  });
+
+  it("extracts supported proof path graph topology", async () => {
+    const graph = await apiClient.getGraph("promise-loyalty", 1);
+    expect(graph.nodes.length).toBeGreaterThan(0);
+    expect(graph.edges.length).toBeGreaterThan(0);
+    expect(graph.paths.length).toBeGreaterThan(0);
+    expect(graph.paths[0].template_id).toBeDefined();
+  });
 });
+
 

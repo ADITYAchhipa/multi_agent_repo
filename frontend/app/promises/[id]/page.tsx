@@ -24,6 +24,10 @@ import {
   ArrowRight,
   Info,
   Bug,
+  History,
+  Network,
+  Calculator,
+  AlertCircle,
 } from "lucide-react";
 import { ReceiptEnvelope, Verification } from "@/types/api";
 
@@ -68,16 +72,19 @@ export default function PromiseDetailPage() {
     useState<Verification | null>(null);
   const [isVerifyingTamper, setIsVerifyingTamper] = useState(false);
 
-  // Fetch promise detail
+  // Historical receipt inspection state
+  const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
+
+  // Fetch promise detail (passing selectedReceiptId when inspecting historical version)
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["promise-detail", promiseId],
-    queryFn: () => apiClient.getPromiseDetail(promiseId),
+    queryKey: ["promise-detail", promiseId, selectedReceiptId],
+    queryFn: () => apiClient.getPromiseDetail(promiseId, selectedReceiptId || undefined),
   });
 
   // Verify authoritative receipt
   const { data: verifyData, isLoading: isVerifying } = useQuery({
-    queryKey: ["promise-verify", promiseId],
-    queryFn: () => apiClient.verifyPromiseReceipt(promiseId),
+    queryKey: ["promise-verify", promiseId, selectedReceiptId],
+    queryFn: () => apiClient.verifyPromiseReceipt(promiseId, selectedReceiptId || undefined),
     enabled: !!data,
   });
 
@@ -183,6 +190,26 @@ export default function PromiseDetailPage() {
         <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-md text-emerald-900 text-xs flex items-center gap-2 font-medium">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{reviewSuccess}</span>
+        </div>
+      )}
+
+      {/* Historical Receipt Notice Banner */}
+      {selectedReceiptId && selectedReceiptId !== promise.current_version_id && (
+        <div className="p-3 bg-amber-50 border border-amber-300 rounded-md text-xs text-amber-900 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-amber-600 shrink-0" />
+            <div>
+              <span className="font-bold">Viewing Historical Receipt:</span>{" "}
+              <span className="font-mono">{receipt.payload.receipt_id}</span> (v{receipt.payload.version}, status: {receipt.payload.status_at_issuance}). The promise&apos;s current head pointer is{" "}
+              <span className="font-mono">{promise.current_version_id}</span> (rev #{promise.revision}, state: {promise.current_state}).
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedReceiptId(null)}
+            className="px-2.5 py-1 text-xs font-semibold bg-white border border-amber-300 rounded hover:bg-amber-100 text-amber-900 transition-colors shrink-0 ml-3"
+          >
+            Return to Head Version &rarr;
+          </button>
         </div>
       )}
 
@@ -381,28 +408,68 @@ export default function PromiseDetailPage() {
 
             {/* Version History Chain */}
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-3">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <GitCommit className="w-4 h-4 text-sky-600" />
-                Immutable Version Transition Chain
-              </h3>
-              <div className="space-y-2">
-                {versions.map((ver) => (
-                  <div
-                    key={ver.receipt_id}
-                    className="p-3 rounded border border-slate-200 bg-slate-50 flex items-center justify-between text-xs font-mono"
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <GitCommit className="w-4 h-4 text-sky-600" />
+                  Immutable Version Transition Chain
+                </h3>
+                {selectedReceiptId && selectedReceiptId !== promise.current_version_id && (
+                  <button
+                    onClick={() => setSelectedReceiptId(null)}
+                    className="text-xs text-sky-600 hover:underline font-semibold"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">v{ver.version}</span>
-                      <span className="text-slate-500">{ver.receipt_id}</span>
-                      <StatusBadge status={ver.status_at_issuance} size="sm" />
+                    Reset to Head &rarr;
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                Each state review transition writes an immutable audit record and issues a successor receipt. Click any version to inspect its cryptographic payload.
+              </p>
+              <div className="space-y-2">
+                {versions.map((ver) => {
+                  const isCurrentHead = ver.receipt_id === promise.current_version_id;
+                  const isSelected = selectedReceiptId
+                    ? ver.receipt_id === selectedReceiptId
+                    : isCurrentHead;
+                  return (
+                    <div
+                      key={ver.receipt_id}
+                      className={`p-3 rounded border flex items-center justify-between text-xs font-mono transition-colors ${
+                        isSelected
+                          ? "border-sky-500 bg-sky-50/60"
+                          : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">v{ver.version}</span>
+                        <span className="text-slate-500 truncate max-w-[130px]" title={ver.receipt_id}>
+                          {ver.receipt_id}
+                        </span>
+                        <StatusBadge status={ver.status_at_issuance} size="sm" />
+                        {isCurrentHead && (
+                          <span className="text-[10px] px-1 py-0.2 rounded bg-slate-200 text-slate-700 font-sans font-medium">
+                            HEAD
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isSelected ? (
+                          <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded border border-sky-300">
+                            VIEWING
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptId(ver.receipt_id)}
+                            className="text-[11px] text-sky-600 hover:text-sky-800 hover:underline font-medium"
+                          >
+                            Inspect &rarr;
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-slate-500 text-[11px]">
-                      {ver.created_at
-                        ? new Date(ver.created_at).toLocaleString()
-                        : "Active Version"}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -418,6 +485,15 @@ export default function PromiseDetailPage() {
                   <StatusBadge status={currentVerification.integrity} size="sm" />
                 )}
               </div>
+
+              {currentVerification && currentVerification.integrity !== "VALID" && (
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-md text-xs text-rose-900 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Cryptographic Integrity Failed:</span> Status is {currentVerification.integrity}. One or more verification checks failed. Downstream actions remain blocked.
+                  </div>
+                </div>
+              )}
 
               {currentVerification ? (
                 <div className="space-y-3">
@@ -458,7 +534,7 @@ export default function PromiseDetailPage() {
                       <span className="font-bold text-slate-900">
                         {currentVerification.eligible_for_action
                           ? "ELIGIBLE SUPPORTING EVIDENCE"
-                          : "INSUFFICIENT (NOT CONFIRMED)"}
+                          : "INSUFFICIENT (eligible_for_action is false in current implementation)"}
                       </span>
                     </div>
                   </div>
@@ -574,6 +650,82 @@ export default function PromiseDetailPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Cryptographic Graph Proof Paths */}
+          {data.graph_paths && data.graph_paths.length > 0 && (
+            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Network className="w-4 h-4 text-sky-600" />
+                  <h3 className="font-bold text-sm text-slate-900">
+                    Cryptographic Graph Proof Paths ({data.graph_paths.length})
+                  </h3>
+                </div>
+                <Link
+                  href="/graph"
+                  className="text-xs text-sky-600 hover:text-sky-800 hover:underline inline-flex items-center font-medium"
+                >
+                  Explore in Graph Explorer &rarr;
+                </Link>
+              </div>
+
+              <div className="space-y-3">
+                {data.graph_paths.map((gp) => (
+                  <div
+                    key={gp.path_id}
+                    className="p-3 bg-slate-50 border border-slate-200 rounded text-xs font-mono space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">{gp.path_id}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-300">
+                        Template: {gp.template_id}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600">
+                      <div>
+                        <span className="text-slate-400 block">Connected Nodes:</span>
+                        <span className="font-semibold text-slate-700">{gp.node_ids.join(" \u2192 ")}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Ledger Revision:</span>
+                        <span className="font-semibold text-slate-700">Revision #{gp.graph_revision}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Deterministic Calculations & Formulas */}
+          {data.calculations && data.calculations.length > 0 && (
+            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                <Calculator className="w-4 h-4 text-emerald-600" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  Deterministic Calculations &amp; Formulas ({data.calculations.length})
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {data.calculations.map((calc, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-slate-50 border border-slate-200 rounded text-xs font-mono space-y-1"
+                  >
+                    <div className="flex justify-between font-bold text-slate-800">
+                      <span>{calc.formula_id} ({calc.status})</span>
+                      <span className="text-emerald-700">
+                        {calc.amount ? `${calc.currency || "$"} ${calc.amount}` : "Evaluated"}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 font-sans">
+                      Inputs: {calc.inputs?.map((inp) => `${inp.name}: ${inp.value || "N/A"}`).join(", ") || "None"}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
